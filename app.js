@@ -34,6 +34,9 @@
   ];
   var WEEKDAY_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
+  var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
+  var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
+  var APP_VERSION = 'v1.1.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -46,8 +49,10 @@
   function computeEpisodeDate(show, episodeNumber){
     var t = (show.airTime||'20:00').split(':');
     var h = parseInt(t[0],10) || 0, m = parseInt(t[1],10) || 0;
+    var perDrop = show.episodesPerAiring || 1;
+    var occurrenceIndex = Math.ceil(episodeNumber / perDrop);
     var base = new Date(show.firstAirDate + 'T00:00:00');
-    if(episodeNumber <= 1){
+    if(occurrenceIndex <= 1){
       base.setHours(h,m,0,0);
       return base;
     }
@@ -55,7 +60,7 @@
     var count = 1;
     var cursor = new Date(base);
     var guard = 0;
-    while(count < episodeNumber && guard < 3000){
+    while(count < occurrenceIndex && guard < 3000){
       cursor.setDate(cursor.getDate()+1);
       guard++;
       if(days.indexOf(cursor.getDay()) !== -1){ count++; }
@@ -95,7 +100,9 @@
   function scheduleText(show){
     var days = (show.airDays||[]).slice().sort().map(function(i){ return WEEKDAY_LABELS[i]; });
     var joined = days.length <= 1 ? (days[0]||'—') : (days.slice(0,-1).join(', ') + ' & ' + days[days.length-1]);
-    var base = 'New episodes ' + joined + ' at ' + fmtTime(new Date('2000-01-01T'+(show.airTime||'20:00')+':00'));
+    var perDrop = show.episodesPerAiring || 1;
+    var freqPrefix = perDrop > 1 ? (perDrop + ' new episodes ') : 'New episodes ';
+    var base = freqPrefix + joined + ' at ' + fmtTime(new Date('2000-01-01T'+(show.airTime||'20:00')+':00'));
     return base + (show.episodeMinutes ? ' · ~' + show.episodeMinutes + ' min each' : '');
   }
   function posterStyle(show){
@@ -108,7 +115,7 @@
   function posterImgTag(showLike, slot, cls){
     if(!showLike || !showLike.posterImage) return '';
     var c = (showLike.posterCrops && showLike.posterCrops[slot]) || {x:50,y:50,zoom:100};
-    return '<img class="poster-img ' + (cls||'') + '" src="' + showLike.posterImage + '" alt="" draggable="false" style="transform:scale(' + (c.zoom/100) + ') translate(' + (c.x-50) + '%,' + (c.y-50) + '%);">';
+    return '<img class="poster-img ' + (cls||'') + '" src="' + showLike.posterImage + '" alt="" draggable="false" style="object-position:' + c.x + '% ' + c.y + '%; transform:scale(' + (c.zoom/100) + ');">';
   }
   function isWideLayout(){
     return window.matchMedia && window.matchMedia('(min-width: 700px)').matches;
@@ -138,7 +145,10 @@
     ghSha: null,
     ghStatus: null,          // { type: 'info'|'success'|'error', msg }
     lastSyncedAt: null,
-    syncing: false
+    syncing: false,
+    genreOptions: GENRE_OPTIONS_DEFAULT.slice(),
+    nationalityOptions: NATIONALITY_OPTIONS_DEFAULT.slice(),
+    managingList: null       // null | 'genre' | 'nationality'
   };
   var toastTimer = null;
   var dragState = null;
@@ -154,6 +164,8 @@
         state.notifyEnabled = (loaded.notifyEnabled !== undefined) ? loaded.notifyEnabled : true;
         state.updatedAt = loaded.updatedAt || 0;
         state.lastNotifyCheck = loaded.lastNotifyCheck || 0;
+        state.genreOptions = (loaded.genreOptions && loaded.genreOptions.length) ? loaded.genreOptions : GENRE_OPTIONS_DEFAULT.slice();
+        state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
       }
     }catch(e){ /* start empty */ }
     try{
@@ -165,7 +177,8 @@
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         shows: state.shows, theme: state.theme, notifyEnabled: state.notifyEnabled,
-        updatedAt: state.updatedAt, lastNotifyCheck: state.lastNotifyCheck
+        updatedAt: state.updatedAt, lastNotifyCheck: state.lastNotifyCheck,
+        genreOptions: state.genreOptions, nationalityOptions: state.nationalityOptions
       }));
     }catch(e){ /* storage unavailable — app still works in-memory this session */ }
   }
@@ -210,12 +223,16 @@
     });
   }
 
+  function syncPayload(){
+    return { shows: state.shows, updatedAt: state.updatedAt, genreOptions: state.genreOptions, nationalityOptions: state.nationalityOptions };
+  }
+
   function syncNow(){
     if(!state.gh || state.syncing) return Promise.resolve({ ok:false, reason:'skip' });
     state.syncing = true;
     return ghGetFile(state.gh).then(function(remote){
       if(!remote.exists){
-        return ghPutFile(state.gh, { shows: state.shows, updatedAt: state.updatedAt }).then(function(put){
+        return ghPutFile(state.gh, syncPayload()).then(function(put){
           state.ghSha = put.content.sha;
           return { ok:true, action:'created' };
         });
@@ -223,12 +240,14 @@
       var remoteData = remote.data || {};
       var remoteShows = remoteData.shows || [];
       var remoteUpdatedAt = remoteData.updatedAt || 0;
-      var localIsEmpty = (state.shows||[]).length === 0;
+      var neverSyncedLocally = !state.updatedAt; // fresh device with no editing history yet — not just an empty list
       var remoteHasData = remoteShows.length > 0;
 
-      if(remoteUpdatedAt > state.updatedAt || (localIsEmpty && remoteHasData)){
+      if(remoteUpdatedAt > state.updatedAt || (neverSyncedLocally && remoteHasData)){
         state.shows = remoteShows;
         state.updatedAt = remoteUpdatedAt;
+        if(remoteData.genreOptions && remoteData.genreOptions.length) state.genreOptions = remoteData.genreOptions;
+        if(remoteData.nationalityOptions && remoteData.nationalityOptions.length) state.nationalityOptions = remoteData.nationalityOptions;
         state.ghSha = remote.sha;
         persistLocal();
         return { ok:true, action:'pulled' };
@@ -237,7 +256,7 @@
         state.ghSha = remote.sha;
         return { ok:true, action:'up-to-date' };
       }
-      return ghPutFile(state.gh, { shows: state.shows, updatedAt: state.updatedAt }, remote.sha).then(function(put){
+      return ghPutFile(state.gh, syncPayload(), remote.sha).then(function(put){
         state.ghSha = put.content.sha;
         return { ok:true, action:'pushed' };
       });
@@ -505,7 +524,7 @@
       '</div>' +
       (deleteConfirming ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;">Tap delete again to remove ' + show.title + '.</p>' : '') +
       '<h2 class="detail-title">' + show.title + '</h2>' +
-      '<p class="detail-meta">' + (show.genres||[]).join(' · ') + '</p>' +
+      '<p class="detail-meta">' + [show.nationality].concat(show.genres||[]).filter(Boolean).join(' · ') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + (show.channel||'—') + ' · ' + (show.platform||'—') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + scheduleText(show) + '</p>' +
       ((show.cast||[]).length ? '<div class="chip-row">' + show.cast.map(function(c){return '<span class="chip">'+c+'</span>';}).join('') + '</div>' : '') +
@@ -521,9 +540,9 @@
 
   /* ---------------- FORM ---------------- */
   function emptyDraft(){
-    return { id:null, title:'', genres:[], cast:[], totalEpisodes:8, airDays:[0], airTime:'20:00',
+    return { id:null, title:'', genres:[], cast:[], nationality:'', totalEpisodes:8, airDays:[0], airTime:'20:00',
       firstAirDate: isoDateOffset(0), channel:'', platform:'', posterIndex: Math.floor(Math.random()*GRADIENTS.length),
-      posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'' };
+      posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1 };
   }
   function tagField(label, field, values, placeholderText){
     return '<div class="field"><label>' + label + '</label>' +
@@ -532,6 +551,36 @@
       }).join('') + '</div>' : '') +
       '<input type="text" id="tagInput_' + field + '" data-tag-input data-field="' + field + '" placeholder="' + placeholderText + '">' +
       '</div>';
+  }
+  function manageListPanel(listKey, options){
+    var chips = options.map(function(o){
+      return '<span class="chip chip-x">' + o + '<button type="button" data-action="remove-list-item" data-list="' + listKey + '" data-value="' + o.replace(/"/g,'&quot;') + '">' + icon('close') + '</button></span>';
+    }).join('');
+    return '<div class="manage-list-panel">' +
+      (chips ? '<div class="chip-row" style="margin-top:0;">' + chips + '</div>' : '<p class="crop-hint" style="margin-top:0;">No options yet.</p>') +
+      '<input type="text" id="listAddInput_' + listKey + '" data-list-add-input="' + listKey + '" placeholder="Add a new option, press Enter">' +
+    '</div>';
+  }
+  function genrePickerField(d){
+    var display = state.genreOptions.concat(d.genres.filter(function(g){ return state.genreOptions.indexOf(g) === -1; }));
+    var chips = display.map(function(g){
+      var active = d.genres.indexOf(g) !== -1;
+      return '<button type="button" class="opt-chip' + (active?' active':'') + '" data-action="toggle-genre" data-value="' + g.replace(/"/g,'&quot;') + '">' + g + '</button>';
+    }).join('');
+    return '<div class="field"><label>Genre</label><div class="day-chips">' + chips + '</div>' +
+      '<button type="button" class="link-btn" data-action="toggle-manage-list" data-list="genre">' + (state.managingList==='genre' ? 'Done' : 'Manage list') + '</button>' +
+      (state.managingList === 'genre' ? manageListPanel('genre', state.genreOptions) : '') +
+    '</div>';
+  }
+  function nationalityField(d){
+    var opts = state.nationalityOptions.map(function(n){
+      return '<option value="' + n.replace(/"/g,'&quot;') + '"' + (d.nationality===n?' selected':'') + '>' + n + '</option>';
+    }).join('');
+    return '<div class="field"><label>Nationality</label>' +
+      '<select id="f_nationality" data-field="nationality"><option value=""' + (!d.nationality?' selected':'') + '>—</option>' + opts + '</select>' +
+      '<button type="button" class="link-btn" data-action="toggle-manage-list" data-list="nationality">' + (state.managingList==='nationality' ? 'Done' : 'Manage list') + '</button>' +
+      (state.managingList === 'nationality' ? manageListPanel('nationality', state.nationalityOptions) : '') +
+    '</div>';
   }
   function renderFormScreen(){
     var d = state.formDraft;
@@ -574,7 +623,8 @@
       '<form id="showForm">' +
         '<div class="field"><label>Title</label><input type="text" id="f_title" data-field="title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Nightbound" required></div>' +
         posterSection +
-        tagField('Genre', 'genres', d.genres, 'Type a genre, press Enter') +
+        genrePickerField(d) +
+        nationalityField(d) +
         tagField('Cast', 'cast', d.cast, 'Type a name, press Enter') +
         '<div class="two-col">' +
           '<div class="field"><label>Total episodes</label><input type="number" id="f_total" data-field="totalEpisodes" min="1" value="' + d.totalEpisodes + '"></div>' +
@@ -582,6 +632,7 @@
         '</div>' +
         '<div class="field"><label>Episode length (minutes)</label><input type="number" id="f_epmin" data-field="episodeMinutes" min="1" value="' + (d.episodeMinutes||'') + '" placeholder="e.g. 45"></div>' +
         '<div class="field"><label>Air days</label><div class="day-chips">' + dayChips + '</div></div>' +
+        '<div class="field"><label>Episodes released together</label><input type="number" id="f_perdrop" data-field="episodesPerAiring" min="1" value="' + (d.episodesPerAiring||1) + '"><p class="crop-hint">For shows that drop more than one episode at the same time (e.g. 2 episodes every Monday), set this above 1.</p></div>' +
         '<div class="two-col">' +
           '<div class="field"><label>Air time</label><input type="time" id="f_time" data-field="airTime" value="' + d.airTime + '"></div>' +
           '<div class="field"><label>Channel</label><input type="text" id="f_channel" data-field="channel" value="' + (d.channel||'').replace(/"/g,'&quot;') + '" placeholder="e.g. ONE31"></div>' +
@@ -651,6 +702,7 @@
         '<div class="stat-tile"><span class="n">' + completed + '</span><span class="l">Completed</span></div>' +
         '<div class="stat-tile"><span class="n">' + hoursWatched + 'h</span><span class="l">Hours watched</span></div>' +
       '</div></div>' +
+      '<p style="text-align:center;color:var(--text-muted);font-size:11px;margin:6px 0 0;">TWatched ' + APP_VERSION + '</p>' +
     '</div>';
   }
 
@@ -703,12 +755,12 @@
     var s = getShow(showId);
     if(!s) return;
     state.editingShowId = showId;
-    state.formDraft = { id:s.id, title:s.title, genres:(s.genres||[]).slice(), cast:(s.cast||[]).slice(),
+    state.formDraft = { id:s.id, title:s.title, genres:(s.genres||[]).slice(), cast:(s.cast||[]).slice(), nationality: s.nationality || '',
       totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(), airTime:s.airTime, firstAirDate:s.firstAirDate,
       channel:s.channel||'', platform:s.platform||'', posterIndex:s.posterIndex||0,
       posterImage: s.posterImage || null,
       posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
-      episodeMinutes: s.episodeMinutes || '' };
+      episodeMinutes: s.episodeMinutes || '', episodesPerAiring: s.episodesPerAiring || 1 };
     state.formOrigin = origin || 'browse';
     state.confirmDeleteId = null;
     openOverlay('form');
@@ -725,22 +777,23 @@
     var total = Math.max(1, parseInt(d.totalEpisodes,10) || 1);
     var mins = parseInt(d.episodeMinutes,10);
     if(!mins || mins <= 0) mins = null;
+    var perDrop = Math.max(1, parseInt(d.episodesPerAiring,10) || 1);
     if(d.id){
       var s = getShow(d.id);
       if(s){
-        s.title = d.title.trim(); s.genres = d.genres; s.cast = d.cast; s.totalEpisodes = total;
+        s.title = d.title.trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.totalEpisodes = total;
         s.airDays = d.airDays.length ? d.airDays : [0]; s.airTime = d.airTime; s.firstAirDate = d.firstAirDate;
         s.channel = d.channel; s.platform = d.platform; s.posterIndex = d.posterIndex;
         s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
-        s.episodeMinutes = mins;
+        s.episodeMinutes = mins; s.episodesPerAiring = perDrop;
         if(s.watched > s.totalEpisodes) s.watched = s.totalEpisodes;
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), genres:d.genres, cast:d.cast, totalEpisodes:total,
+      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', totalEpisodes:total,
         airDays: d.airDays.length ? d.airDays : [0], airTime:d.airTime, firstAirDate:d.firstAirDate,
         channel:d.channel, platform:d.platform, posterIndex:d.posterIndex,
         posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
-        episodeMinutes: mins, watched:0 });
+        episodeMinutes: mins, episodesPerAiring: perDrop, watched:0 });
     }
     touch();
     state.overlay = null; state.formDraft = null; state.editingShowId = null;
@@ -768,15 +821,17 @@
     render();
     ghGetFile(candidate).then(function(remote){
       if(!remote.exists){
-        return ghPutFile(candidate, { shows: state.shows, updatedAt: state.updatedAt }).then(function(put){
+        return ghPutFile(candidate, syncPayload()).then(function(put){
           state.ghSha = put.content.sha;
         });
       }
       var remoteShows = (remote.data && remote.data.shows) || [];
       var remoteUpdatedAt = (remote.data && remote.data.updatedAt) || 0;
-      if(remoteShows.length && (state.shows.length === 0 || remoteUpdatedAt > state.updatedAt)){
+      if(remoteShows.length && (!state.updatedAt || remoteUpdatedAt > state.updatedAt)){
         state.shows = remoteShows;
         state.updatedAt = remoteUpdatedAt;
+        if(remote.data.genreOptions && remote.data.genreOptions.length) state.genreOptions = remote.data.genreOptions;
+        if(remote.data.nationalityOptions && remote.data.nationalityOptions.length) state.nationalityOptions = remote.data.nationalityOptions;
       }
       state.ghSha = remote.sha;
     }).then(function(){
@@ -847,6 +902,26 @@
       case 'set-poster':
         state.formDraft.posterIndex = parseInt(btn.getAttribute('data-index'),10);
         render(); break;
+      case 'toggle-genre':
+        (function(){
+          var val = btn.getAttribute('data-value');
+          var arr = state.formDraft.genres;
+          var pos = arr.indexOf(val);
+          if(pos === -1) arr.push(val); else arr.splice(pos,1);
+          render();
+        })(); break;
+      case 'toggle-manage-list':
+        state.managingList = (state.managingList === btn.getAttribute('data-list')) ? null : btn.getAttribute('data-list');
+        render(); break;
+      case 'remove-list-item':
+        (function(){
+          var listKey = btn.getAttribute('data-list');
+          var val = btn.getAttribute('data-value');
+          var arr = listKey === 'genre' ? state.genreOptions : state.nationalityOptions;
+          var pos = arr.indexOf(val);
+          if(pos !== -1){ arr.splice(pos,1); touch(); }
+          render();
+        })(); break;
       case 'trigger-poster-upload':
         (function(){
           var input = document.getElementById('posterFileInput');
@@ -908,7 +983,10 @@
       c.zoom = parseInt(t.value,10) || 100;
       var box = t.closest('.crop-field');
       var img = box && box.querySelector('.poster-img');
-      if(img) img.style.transform = 'scale(' + (c.zoom/100) + ') translate(' + (c.x-50) + '%,' + (c.y-50) + '%)';
+      if(img){
+        img.style.objectPosition = c.x + '% ' + c.y + '%';
+        img.style.transform = 'scale(' + (c.zoom/100) + ')';
+      }
       return;
     }
     if(t.matches('[data-field]') && state.formDraft && !t.matches('[data-tag-input]')){
@@ -934,7 +1012,17 @@
     var slot = box.getAttribute('data-slot');
     var crop = (state.formDraft.posterCrops && state.formDraft.posterCrops[slot]) || {x:50,y:50,zoom:100};
     var rect = box.getBoundingClientRect();
-    dragState = { slot:slot, box:box, startClientX:e.clientX, startClientY:e.clientY, startX:crop.x, startY:crop.y, w:rect.width||1, h:rect.height||1, pointerId:e.pointerId };
+    var imgEl = box.querySelector('.poster-img');
+    var nw = (imgEl && imgEl.naturalWidth) || rect.width || 1;
+    var nh = (imgEl && imgEl.naturalHeight) || rect.height || 1;
+    var coverScale = Math.max((rect.width||1) / nw, (rect.height||1) / nh);
+    var overflowX = Math.max(0, nw * coverScale - (rect.width||0));
+    var overflowY = Math.max(0, nh * coverScale - (rect.height||0));
+    dragState = {
+      slot:slot, box:box, startClientX:e.clientX, startClientY:e.clientY,
+      startX:crop.x, startY:crop.y, zoom: crop.zoom || 100,
+      overflowX: overflowX, overflowY: overflowY, pointerId:e.pointerId
+    };
     try{ box.setPointerCapture(e.pointerId); }catch(err){}
     e.preventDefault();
   });
@@ -942,12 +1030,20 @@
     if(!dragState || !state.formDraft) return;
     var crop = state.formDraft.posterCrops[dragState.slot];
     if(!crop) return;
-    var dxPct = ((e.clientX - dragState.startClientX) / dragState.w) * 100;
-    var dyPct = ((e.clientY - dragState.startClientY) / dragState.h) * 100;
-    crop.x = clamp(dragState.startX - dxPct, 0, 100);
-    crop.y = clamp(dragState.startY - dyPct, 0, 100);
+    var zoomFactor = (dragState.zoom || 100) / 100;
+    var baseDx = (e.clientX - dragState.startClientX) / zoomFactor;
+    var baseDy = (e.clientY - dragState.startClientY) / zoomFactor;
+    if(dragState.overflowX > 0){
+      crop.x = clamp(dragState.startX - (100 * baseDx / dragState.overflowX), 0, 100);
+    }
+    if(dragState.overflowY > 0){
+      crop.y = clamp(dragState.startY - (100 * baseDy / dragState.overflowY), 0, 100);
+    }
     var img = dragState.box.querySelector('.poster-img');
-    if(img) img.style.transform = 'scale(' + (crop.zoom/100) + ') translate(' + (crop.x-50) + '%,' + (crop.y-50) + '%)';
+    if(img){
+      img.style.objectPosition = crop.x + '% ' + crop.y + '%';
+      img.style.transform = 'scale(' + zoomFactor + ')';
+    }
   });
   function endDrag(){ dragState = null; }
   document.addEventListener('pointerup', endDrag);
@@ -963,6 +1059,17 @@
         render();
         var el = document.getElementById(e.target.id);
         if(el) el.value = '';
+      }
+    }
+    if(e.key === 'Enter' && e.target.matches('[data-list-add-input]')){
+      e.preventDefault();
+      var listKey = e.target.getAttribute('data-list-add-input');
+      var newVal = e.target.value.trim();
+      if(newVal){
+        var arr = listKey === 'genre' ? state.genreOptions : state.nationalityOptions;
+        if(arr.indexOf(newVal) === -1){ arr.push(newVal); touch(); }
+        pendingFocusId = e.target.id;
+        render();
       }
     }
   });
@@ -982,6 +1089,24 @@
       if(state.gh) syncNow().then(render);
     }
   });
+
+  /* ---------------- real viewport height (fixes the footer/tab-bar jump on iOS) ---------------- */
+  function setRealVH(){
+    document.documentElement.style.setProperty('--real-vh', window.innerHeight + 'px');
+  }
+  setRealVH();
+  window.addEventListener('resize', setRealVH);
+  window.addEventListener('orientationchange', setRealVH);
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize', setRealVH);
+  }
+
+  /* ---------------- disable pinch-zoom so it behaves like a native app ---------------- */
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+  document.addEventListener('gesturechange', function(e){ e.preventDefault(); });
+  document.addEventListener('touchmove', function(e){
+    if(e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive:false });
 
   /* ---------------- init ---------------- */
   loadState();
