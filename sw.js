@@ -1,7 +1,7 @@
 // TWatched service worker — app-shell caching so the installed app opens
 // instantly and works offline. It does not do background push; see README.
 
-const CACHE_VERSION = 'twatched-v4';
+const CACHE_VERSION = 'twatched-v5';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -28,22 +28,21 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Network-first for GitHub API calls (never cache those), cache-first for the app shell.
+// Network-first for the app shell so a fresh deploy is always picked up immediately when
+// online; the cache is only a fallback for when the device is offline. GitHub API calls are
+// never cached at all.
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
   if (url.indexOf('api.github.com') !== -1) return; // let sync calls always hit the network
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        if (event.request.method === 'GET' && response && response.status === 200) {
-          const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
-        }
-        return response;
-      }).catch(() => cached);
-    })
+    fetch(event.request).then((response) => {
+      if (event.request.method === 'GET' && response && response.status === 200) {
+        const copy = response.clone();
+        caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
+      }
+      return response;
+    }).catch(() => caches.match(event.request))
   );
 });
 

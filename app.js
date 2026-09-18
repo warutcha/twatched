@@ -36,7 +36,7 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.2.1';
+  var APP_VERSION = 'v1.3.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1183,7 +1183,16 @@
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
-      navigator.serviceWorker.register('sw.js').catch(function(){});
+      navigator.serviceWorker.register('sw.js', { updateViaCache:'none' }).then(function(reg){
+        // pick up a newly-deployed version as soon as it's ready, without waiting for a manual reopen
+        if(reg.update) reg.update();
+      }).catch(function(){});
+    });
+    var reloadedOnce = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function(){
+      if(reloadedOnce) return;
+      reloadedOnce = true;
+      window.location.reload();
     });
   }
 })();
