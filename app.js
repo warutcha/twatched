@@ -36,7 +36,7 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.3.0';
+  var APP_VERSION = 'v1.3.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -397,6 +397,27 @@
     } else {
       toastSlot.classList.remove('is-visible');
     }
+
+    var diagEl = document.getElementById('diagLine');
+    if(diagEl){
+      requestAnimationFrame(function(){
+        try{
+          var tb = document.querySelector('.tab-bar');
+          var tbRect = tb ? tb.getBoundingClientRect() : null;
+          var standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+          var vvH = window.visualViewport ? Math.round(window.visualViewport.height) : null;
+          var parts = [
+            'standalone=' + standalone,
+            'innerH=' + window.innerHeight,
+            'vvH=' + (vvH===null?'n/a':vvH),
+            'screenH=' + (window.screen ? window.screen.height : 'n/a'),
+            'tabBarBottom=' + (tbRect ? Math.round(tbRect.bottom) : 'n/a'),
+            'tabBarTop=' + (tbRect ? Math.round(tbRect.top) : 'n/a')
+          ];
+          diagEl.textContent = 'Diag — ' + parts.join(' · ');
+        }catch(err){ diagEl.textContent = 'Diag — error: ' + err; }
+      });
+    }
   }
 
   /* ---------------- HOME ---------------- */
@@ -415,6 +436,10 @@
     upcoming = upcoming.slice(0,3);
 
     var out = '<div class="screen-pad">';
+    var isStandalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    if(!isStandalone){
+      out += '<div class="standalone-warning">You\'re viewing this in a browser tab, not the installed app. The bottom bar (and a few other things) can only sit correctly when opened from the <strong>TWatched icon on your Home Screen</strong> — tap Share → Add to Home Screen if you haven\'t, then always launch it from there.</div>';
+    }
     out += '<h1 class="screen-title">Up next</h1>';
     out += '<p class="screen-kicker">' + (active.length ? 'Tap the check to mark an episode watched.' : 'Nothing waiting on you right now.') + '</p>';
 
@@ -739,6 +764,7 @@
         '<div class="stat-tile"><span class="n">' + hoursWatched + 'h</span><span class="l">Hours watched</span></div>' +
       '</div></div>' +
       '<p style="text-align:center;color:var(--text-muted);font-size:11px;margin:6px 0 0;">TWatched ' + APP_VERSION + '</p>' +
+      '<p style="text-align:center;color:var(--text-muted);font-size:10px;margin:4px 0 0;" id="diagLine">Diagnostics: measuring…</p>' +
     '</div>';
   }
 
