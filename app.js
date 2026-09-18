@@ -36,7 +36,7 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.1.0';
+  var APP_VERSION = 'v1.2.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -112,6 +112,10 @@
   function initialOf(show){ return (show.title||'?').trim().charAt(0).toUpperCase(); }
   function clamp(n, lo, hi){ return Math.max(lo, Math.min(hi, n)); }
   function defaultCrops(){ return { thumbnail:{x:50,y:50,zoom:100}, grid:{x:50,y:50,zoom:100}, banner:{x:50,y:50,zoom:100} }; }
+  function castEntry(c){
+    if(typeof c === 'string') return { name:c, photo:null };
+    return { name:(c && c.name) || '', photo:(c && c.photo) || null };
+  }
   function posterImgTag(showLike, slot, cls){
     if(!showLike || !showLike.posterImage) return '';
     var c = (showLike.posterCrops && showLike.posterCrops[slot]) || {x:50,y:50,zoom:100};
@@ -152,6 +156,7 @@
   };
   var toastTimer = null;
   var dragState = null;
+  var castPhotoTargetIndex = null;
   var resizeTimer = null;
 
   function loadState(){
@@ -338,6 +343,11 @@
         '<span>' + (tab==='home'?'Home':(tab==='browse'?'Browse':'Settings')) + '</span>';
     });
 
+    // preserve each screen's scroll position across the innerHTML rebuild below —
+    // otherwise every render() (a chip tap, a background sync, etc.) snaps scroll to top.
+    var savedScroll = [];
+    appBody.querySelectorAll('.app-screen').forEach(function(el){ savedScroll.push(el.scrollTop); });
+
     var html = '';
     html += '<div class="app-screen" style="display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + '</div>';
     html += '<div class="app-screen" style="display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + '</div>';
@@ -351,6 +361,10 @@
     }
 
     appBody.innerHTML = html;
+
+    appBody.querySelectorAll('.app-screen').forEach(function(el, i){
+      if(savedScroll[i]) el.scrollTop = savedScroll[i];
+    });
 
     if(state.justOpenedOverlay){
       state.justOpenedOverlay = false;
@@ -524,10 +538,14 @@
       '</div>' +
       (deleteConfirming ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;">Tap delete again to remove ' + show.title + '.</p>' : '') +
       '<h2 class="detail-title">' + show.title + '</h2>' +
+      (show.originalTitle ? '<p class="detail-meta detail-meta--muted" style="margin-top:-2px;">' + show.originalTitle + '</p>' : '') +
       '<p class="detail-meta">' + [show.nationality].concat(show.genres||[]).filter(Boolean).join(' · ') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + (show.channel||'—') + ' · ' + (show.platform||'—') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + scheduleText(show) + '</p>' +
-      ((show.cast||[]).length ? '<div class="chip-row">' + show.cast.map(function(c){return '<span class="chip">'+c+'</span>';}).join('') + '</div>' : '') +
+      ((show.cast||[]).length ? '<div class="chip-row">' + show.cast.map(function(c){
+        var ce = castEntry(c);
+        return '<span class="chip cast-chip">' + (ce.photo ? '<img class="cast-chip-img" src="'+ce.photo+'" alt="">' : '<span class="cast-chip-init">'+(ce.name.trim().charAt(0).toUpperCase()||'?')+'</span>') + ce.name + '</span>';
+      }).join('') + '</div>' : '') +
       '<div class="progress"><div class="progress__bar" style="width:' + pct + '%"></div></div>' +
       '<p class="progress__label">' + show.watched + ' of ' + show.totalEpisodes + ' watched</p>' +
       '<ul class="ep-list">' + rows + '</ul>';
@@ -540,7 +558,7 @@
 
   /* ---------------- FORM ---------------- */
   function emptyDraft(){
-    return { id:null, title:'', genres:[], cast:[], nationality:'', totalEpisodes:8, airDays:[0], airTime:'20:00',
+    return { id:null, title:'', originalTitle:'', genres:[], cast:[], nationality:'', totalEpisodes:8, airDays:[0], airTime:'20:00',
       firstAirDate: isoDateOffset(0), channel:'', platform:'', posterIndex: Math.floor(Math.random()*GRADIENTS.length),
       posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1 };
   }
@@ -582,6 +600,22 @@
       (state.managingList === 'nationality' ? manageListPanel('nationality', state.nationalityOptions) : '') +
     '</div>';
   }
+  function castField(d){
+    var rows = d.cast.map(function(c, i){
+      return '<div class="cast-row">' +
+        '<button type="button" class="cast-photo" data-action="trigger-cast-photo" data-index="' + i + '" aria-label="Add photo for ' + c.name.replace(/"/g,'&quot;') + '">' +
+          (c.photo ? '<img src="' + c.photo + '" alt="">' : '<span>' + (c.name.trim().charAt(0).toUpperCase()||'?') + '</span>') +
+        '</button>' +
+        '<span class="cast-name">' + c.name + '</span>' +
+        '<button type="button" class="cast-remove" data-action="remove-cast" data-index="' + i + '" aria-label="Remove ' + c.name.replace(/"/g,'&quot;') + '">' + icon('close') + '</button>' +
+      '</div>';
+    }).join('');
+    return '<div class="field"><label>Cast</label>' +
+      (rows ? '<div class="cast-list">' + rows + '</div>' : '') +
+      '<input type="text" id="tagInput_castName" data-cast-name-input placeholder="Type a name, press Enter">' +
+      '<p class="crop-hint">Add a name, then tap their circle to add a photo.</p>' +
+    '</div>';
+  }
   function renderFormScreen(){
     var d = state.formDraft;
     var isEdit = !!d.id;
@@ -620,12 +654,14 @@
     return '<div class="screen-pad">' +
       '<div class="form-head"><h2>' + (isEdit ? 'Edit show' : 'Add a show') + '</h2><button type="button" data-action="cancel-form">Cancel</button></div>' +
       '<input type="file" accept="image/*" id="posterFileInput" style="display:none">' +
+      '<input type="file" accept="image/*" id="castFileInput" style="display:none">' +
       '<form id="showForm">' +
         '<div class="field"><label>Title</label><input type="text" id="f_title" data-field="title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Nightbound" required></div>' +
+        '<div class="field"><label>Original title (optional)</label><input type="text" id="f_origtitle" data-field="originalTitle" value="' + (d.originalTitle||'').replace(/"/g,'&quot;') + '" placeholder="e.g. 로또 1등도 출근합니다"></div>' +
         posterSection +
         genrePickerField(d) +
         nationalityField(d) +
-        tagField('Cast', 'cast', d.cast, 'Type a name, press Enter') +
+        castField(d) +
         '<div class="two-col">' +
           '<div class="field"><label>Total episodes</label><input type="number" id="f_total" data-field="totalEpisodes" min="1" value="' + d.totalEpisodes + '"></div>' +
           '<div class="field"><label>Episode 1 airs</label><input type="date" id="f_date" data-field="firstAirDate" value="' + d.firstAirDate + '"></div>' +
@@ -755,7 +791,7 @@
     var s = getShow(showId);
     if(!s) return;
     state.editingShowId = showId;
-    state.formDraft = { id:s.id, title:s.title, genres:(s.genres||[]).slice(), cast:(s.cast||[]).slice(), nationality: s.nationality || '',
+    state.formDraft = { id:s.id, title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '',
       totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(), airTime:s.airTime, firstAirDate:s.firstAirDate,
       channel:s.channel||'', platform:s.platform||'', posterIndex:s.posterIndex||0,
       posterImage: s.posterImage || null,
@@ -781,7 +817,7 @@
     if(d.id){
       var s = getShow(d.id);
       if(s){
-        s.title = d.title.trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.totalEpisodes = total;
+        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.totalEpisodes = total;
         s.airDays = d.airDays.length ? d.airDays : [0]; s.airTime = d.airTime; s.firstAirDate = d.firstAirDate;
         s.channel = d.channel; s.platform = d.platform; s.posterIndex = d.posterIndex;
         s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
@@ -789,7 +825,7 @@
         if(s.watched > s.totalEpisodes) s.watched = s.totalEpisodes;
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', totalEpisodes:total,
+      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', totalEpisodes:total,
         airDays: d.airDays.length ? d.airDays : [0], airTime:d.airTime, firstAirDate:d.firstAirDate,
         channel:d.channel, platform:d.platform, posterIndex:d.posterIndex,
         posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
@@ -927,6 +963,18 @@
           var input = document.getElementById('posterFileInput');
           if(input) input.click();
         })(); break;
+      case 'trigger-cast-photo':
+        (function(){
+          castPhotoTargetIndex = parseInt(btn.getAttribute('data-index'),10);
+          var input = document.getElementById('castFileInput');
+          if(input) input.click();
+        })(); break;
+      case 'remove-cast':
+        (function(){
+          var idx = parseInt(btn.getAttribute('data-index'),10);
+          state.formDraft.cast.splice(idx,1);
+          render();
+        })(); break;
       case 'remove-poster-image':
         state.formDraft.posterImage = null;
         render(); break;
@@ -1005,6 +1053,17 @@
         }
       });
     }
+    if(e.target && e.target.id === 'castFileInput' && state.formDraft){
+      var castFile = e.target.files && e.target.files[0];
+      var idx = castPhotoTargetIndex;
+      if(!castFile || idx === null || !state.formDraft.cast[idx]) return;
+      readAndDownscaleImage(castFile, 160, 0.75, function(dataUri){
+        if(dataUri && state.formDraft && state.formDraft.cast[idx]){
+          state.formDraft.cast[idx].photo = dataUri;
+          render();
+        }
+      });
+    }
   });
   document.addEventListener('pointerdown', function(e){
     var box = e.target.closest('[data-crop-box]');
@@ -1061,6 +1120,17 @@
         if(el) el.value = '';
       }
     }
+    if(e.key === 'Enter' && e.target.matches('[data-cast-name-input]')){
+      e.preventDefault();
+      var castName = e.target.value.trim();
+      if(castName && state.formDraft){
+        state.formDraft.cast.push({ name: castName, photo: null });
+        pendingFocusId = e.target.id;
+        render();
+        var castEl = document.getElementById(e.target.id);
+        if(castEl) castEl.value = '';
+      }
+    }
     if(e.key === 'Enter' && e.target.matches('[data-list-add-input]')){
       e.preventDefault();
       var listKey = e.target.getAttribute('data-list-add-input');
@@ -1089,17 +1159,6 @@
       if(state.gh) syncNow().then(render);
     }
   });
-
-  /* ---------------- real viewport height (fixes the footer/tab-bar jump on iOS) ---------------- */
-  function setRealVH(){
-    document.documentElement.style.setProperty('--real-vh', window.innerHeight + 'px');
-  }
-  setRealVH();
-  window.addEventListener('resize', setRealVH);
-  window.addEventListener('orientationchange', setRealVH);
-  if(window.visualViewport){
-    window.visualViewport.addEventListener('resize', setRealVH);
-  }
 
   /* ---------------- disable pinch-zoom so it behaves like a native app ---------------- */
   document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
