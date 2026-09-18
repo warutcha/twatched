@@ -1,7 +1,7 @@
 // TWatched service worker — app-shell caching so the installed app opens
 // instantly and works offline. It does not do background push; see README.
 
-const CACHE_VERSION = 'twatched-v3';
+const CACHE_VERSION = 'twatched-v4';
 const SHELL_FILES = [
   './',
   './index.html',

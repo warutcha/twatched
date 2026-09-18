@@ -36,7 +36,7 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.2.0';
+  var APP_VERSION = 'v1.2.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1163,8 +1163,14 @@
   /* ---------------- disable pinch-zoom so it behaves like a native app ---------------- */
   document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
   document.addEventListener('gesturechange', function(e){ e.preventDefault(); });
+
+  /* ---------------- lock the outer page so only the app's own screens can scroll ----------------
+     Belt-and-suspenders alongside the position:fixed html/body in the CSS: this stops any
+     drag that starts on non-scrollable chrome (tab bar, background) from ever reaching the
+     page and triggering iOS's rubber-band bounce, which is what exposes the gap underneath. */
   document.addEventListener('touchmove', function(e){
-    if(e.touches && e.touches.length > 1) e.preventDefault();
+    if(e.touches && e.touches.length > 1){ e.preventDefault(); return; }
+    if(!e.target.closest('.app-screen, .crop-box')) e.preventDefault();
   }, { passive:false });
 
   /* ---------------- init ---------------- */
