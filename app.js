@@ -1201,6 +1201,31 @@
     if(!e.target.closest('.app-screen, .crop-box')) e.preventDefault();
   }, { passive:false });
 
+  /* ---------------- close the real, measured gap between innerHeight and the true screen ----------------
+     Diagnostics proved our own layout is correctly anchored to what the browser reports as the
+     viewport bottom — the remaining gap is the browser under-reporting the usable height, by a
+     fixed, measurable amount. Rather than fight that number, measure it directly and extend the
+     tab bar's own background down to the true edge with a matching-colour filler strip. */
+  function fixBottomGap(){
+    var filler = document.getElementById('tabBarFiller');
+    if(!filler) return;
+    var reported = (window.visualViewport ? window.visualViewport.height : window.innerHeight) || window.innerHeight;
+    var trueHeight = window.screen ? window.screen.height : reported;
+    var gap = Math.round(trueHeight - reported);
+    // sanity clamp — only ever patch a small, plausible sliver, never something that looks like a measurement fluke
+    if(gap < 0 || gap > 140) gap = 0;
+    // bottom:0 alone would grow this box UPWARD from the same edge the tab bar already sits on,
+    // hiding it behind the tab bar instead of reaching the dead zone below it. A negative bottom
+    // offset is what actually pushes it down past that edge, into the gap itself.
+    filler.style.height = gap + 'px';
+    filler.style.bottom = gap ? ('-' + gap + 'px') : '0px';
+  }
+  fixBottomGap();
+  window.addEventListener('resize', fixBottomGap);
+  window.addEventListener('orientationchange', function(){ setTimeout(fixBottomGap, 50); setTimeout(fixBottomGap, 350); });
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') fixBottomGap(); });
+  setTimeout(fixBottomGap, 400); // one late re-check in case the very first measurement runs before iOS settles
+
   /* ---------------- init ---------------- */
   loadState();
   render();
