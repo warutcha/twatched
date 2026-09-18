@@ -36,7 +36,7 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.3.1';
+  var APP_VERSION = 'v1.4.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -404,6 +404,7 @@
         try{
           var tb = document.querySelector('.tab-bar');
           var tbRect = tb ? tb.getBoundingClientRect() : null;
+          var filler = document.getElementById('tabBarFiller');
           var standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
           var vvH = window.visualViewport ? Math.round(window.visualViewport.height) : null;
           var parts = [
@@ -412,7 +413,7 @@
             'vvH=' + (vvH===null?'n/a':vvH),
             'screenH=' + (window.screen ? window.screen.height : 'n/a'),
             'tabBarBottom=' + (tbRect ? Math.round(tbRect.bottom) : 'n/a'),
-            'tabBarTop=' + (tbRect ? Math.round(tbRect.top) : 'n/a')
+            'fillerH=' + (filler ? filler.style.height : 'n/a')
           ];
           diagEl.textContent = 'Diag — ' + parts.join(' · ');
         }catch(err){ diagEl.textContent = 'Diag — error: ' + err; }
@@ -1198,6 +1199,27 @@
     if(e.touches && e.touches.length > 1){ e.preventDefault(); return; }
     if(!e.target.closest('.app-screen, .crop-box')) e.preventDefault();
   }, { passive:false });
+
+  /* ---------------- close the real, measured gap between innerHeight and the true screen ----------------
+     Diagnostics proved our own layout is correctly anchored to what the browser reports as the
+     viewport bottom — the remaining gap is the browser under-reporting the usable height, by a
+     fixed, measurable amount. Rather than fight that number, measure it directly and extend the
+     tab bar's own background down to the true edge with a matching-colour filler strip. */
+  function fixBottomGap(){
+    var filler = document.getElementById('tabBarFiller');
+    if(!filler) return;
+    var reported = (window.visualViewport ? window.visualViewport.height : window.innerHeight) || window.innerHeight;
+    var trueHeight = window.screen ? window.screen.height : reported;
+    var gap = Math.round(trueHeight - reported);
+    // sanity clamp — only ever patch a small, plausible sliver, never something that looks like a measurement fluke
+    if(gap < 0 || gap > 140) gap = 0;
+    filler.style.height = gap + 'px';
+  }
+  fixBottomGap();
+  window.addEventListener('resize', fixBottomGap);
+  window.addEventListener('orientationchange', function(){ setTimeout(fixBottomGap, 50); setTimeout(fixBottomGap, 350); });
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') fixBottomGap(); });
+  setTimeout(fixBottomGap, 400); // one late re-check in case the very first measurement runs before iOS settles
 
   /* ---------------- init ---------------- */
   loadState();
