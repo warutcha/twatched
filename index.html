@@ -47,9 +47,18 @@
 
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
-  html{ position:fixed; inset:0; width:100%; height:100%; overflow:hidden; overscroll-behavior:none; }
+  /* iOS standalone PWAs under-report innerHeight/100%/100dvh by roughly the top safe-area
+     inset (status bar / Dynamic Island), even though this shell sits flush at the true top
+     edge (inset:0). That missing sliver isn't "extra" screen we don't have — it's height our
+     own shell was never given, so it strands as a gap at the true bottom, under the tab bar.
+     Adding the top inset back to the height makes the shell reach the real physical bottom. */
+  html{
+    position:fixed; inset:0; width:100%; overflow:hidden; overscroll-behavior:none;
+    height:calc(100% + env(safe-area-inset-top,0px));
+  }
   body{
-    position:fixed; inset:0; width:100%; height:100%; overflow:hidden;
+    position:fixed; inset:0; width:100%; overflow:hidden;
+    height:calc(100% + env(safe-area-inset-top,0px));
     background:var(--bg); font-family: var(--font-body); overscroll-behavior:none;
     touch-action: manipulation;
   }
