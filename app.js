@@ -36,7 +36,7 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.4.0';
+  var APP_VERSION = 'v1.4.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -413,7 +413,8 @@
             'vvH=' + (vvH===null?'n/a':vvH),
             'screenH=' + (window.screen ? window.screen.height : 'n/a'),
             'tabBarBottom=' + (tbRect ? Math.round(tbRect.bottom) : 'n/a'),
-            'fillerH=' + (filler ? filler.style.height : 'n/a')
+            'fillerH=' + (filler ? filler.style.height : 'n/a'),
+            'fillerBottom=' + (filler ? filler.style.bottom : 'n/a')
           ];
           diagEl.textContent = 'Diag — ' + parts.join(' · ');
         }catch(err){ diagEl.textContent = 'Diag — error: ' + err; }
@@ -1213,7 +1214,11 @@
     var gap = Math.round(trueHeight - reported);
     // sanity clamp — only ever patch a small, plausible sliver, never something that looks like a measurement fluke
     if(gap < 0 || gap > 140) gap = 0;
+    // bottom:0 alone would grow this box UPWARD from the same edge the tab bar already sits on,
+    // hiding it behind the tab bar instead of reaching the dead zone below it. A negative bottom
+    // offset is what actually pushes it down past that edge, into the gap itself.
     filler.style.height = gap + 'px';
+    filler.style.bottom = gap ? ('-' + gap + 'px') : '0px';
   }
   fixBottomGap();
   window.addEventListener('resize', fixBottomGap);
