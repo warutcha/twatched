@@ -36,7 +36,7 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.4.1';
+  var APP_VERSION = 'v1.5.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -404,7 +404,7 @@
         try{
           var tb = document.querySelector('.tab-bar');
           var tbRect = tb ? tb.getBoundingClientRect() : null;
-          var filler = document.getElementById('tabBarFiller');
+          var appRect = appEl ? appEl.getBoundingClientRect() : null;
           var standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
           var vvH = window.visualViewport ? Math.round(window.visualViewport.height) : null;
           var parts = [
@@ -412,9 +412,8 @@
             'innerH=' + window.innerHeight,
             'vvH=' + (vvH===null?'n/a':vvH),
             'screenH=' + (window.screen ? window.screen.height : 'n/a'),
-            'tabBarBottom=' + (tbRect ? Math.round(tbRect.bottom) : 'n/a'),
-            'fillerH=' + (filler ? filler.style.height : 'n/a'),
-            'fillerBottom=' + (filler ? filler.style.bottom : 'n/a')
+            'appHeight=' + (appRect ? Math.round(appRect.height) : 'n/a'),
+            'tabBarBottom=' + (tbRect ? Math.round(tbRect.bottom) : 'n/a')
           ];
           diagEl.textContent = 'Diag — ' + parts.join(' · ');
         }catch(err){ diagEl.textContent = 'Diag — error: ' + err; }
@@ -438,10 +437,6 @@
     upcoming = upcoming.slice(0,3);
 
     var out = '<div class="screen-pad">';
-    var isStandalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-    if(!isStandalone){
-      out += '<div class="standalone-warning">You\'re viewing this in a browser tab, not the installed app. The bottom bar (and a few other things) can only sit correctly when opened from the <strong>TWatched icon on your Home Screen</strong> — tap Share → Add to Home Screen if you haven\'t, then always launch it from there.</div>';
-    }
     out += '<h1 class="screen-title">Up next</h1>';
     out += '<p class="screen-kicker">' + (active.length ? 'Tap the check to mark an episode watched.' : 'Nothing waiting on you right now.') + '</p>';
 
@@ -1200,31 +1195,6 @@
     if(e.touches && e.touches.length > 1){ e.preventDefault(); return; }
     if(!e.target.closest('.app-screen, .crop-box')) e.preventDefault();
   }, { passive:false });
-
-  /* ---------------- close the real, measured gap between innerHeight and the true screen ----------------
-     Diagnostics proved our own layout is correctly anchored to what the browser reports as the
-     viewport bottom — the remaining gap is the browser under-reporting the usable height, by a
-     fixed, measurable amount. Rather than fight that number, measure it directly and extend the
-     tab bar's own background down to the true edge with a matching-colour filler strip. */
-  function fixBottomGap(){
-    var filler = document.getElementById('tabBarFiller');
-    if(!filler) return;
-    var reported = (window.visualViewport ? window.visualViewport.height : window.innerHeight) || window.innerHeight;
-    var trueHeight = window.screen ? window.screen.height : reported;
-    var gap = Math.round(trueHeight - reported);
-    // sanity clamp — only ever patch a small, plausible sliver, never something that looks like a measurement fluke
-    if(gap < 0 || gap > 140) gap = 0;
-    // bottom:0 alone would grow this box UPWARD from the same edge the tab bar already sits on,
-    // hiding it behind the tab bar instead of reaching the dead zone below it. A negative bottom
-    // offset is what actually pushes it down past that edge, into the gap itself.
-    filler.style.height = gap + 'px';
-    filler.style.bottom = gap ? ('-' + gap + 'px') : '0px';
-  }
-  fixBottomGap();
-  window.addEventListener('resize', fixBottomGap);
-  window.addEventListener('orientationchange', function(){ setTimeout(fixBottomGap, 50); setTimeout(fixBottomGap, 350); });
-  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') fixBottomGap(); });
-  setTimeout(fixBottomGap, 400); // one late re-check in case the very first measurement runs before iOS settles
 
   /* ---------------- init ---------------- */
   loadState();
