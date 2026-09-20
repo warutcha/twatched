@@ -52,7 +52,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.6.0';
+  var APP_VERSION = 'v1.6.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -447,6 +447,12 @@
       toastSlot.classList.remove('is-visible');
     }
 
+    var fabEl = document.getElementById('browseFab');
+    if(fabEl){
+      var showFab = (state.activeTab === 'browse' && !state.overlay && !isWideLayout());
+      fabEl.style.display = showFab ? 'flex' : 'none';
+    }
+
     var diagEl = document.getElementById('diagLine');
     if(diagEl){
       requestAnimationFrame(function(){
@@ -573,7 +579,6 @@
     } else {
       out2 += '<div class="browse-grid">' + state.shows.map(tileMarkup).join('') + '</div>';
     }
-    out2 += '<button class="fab" data-action="open-add" aria-label="Add a show">' + icon('plus') + '</button>';
     out2 += '</div>';
     return out2;
   }
@@ -742,8 +747,6 @@
     }
     return '<div class="screen-pad">' +
       '<div class="form-head"><h2>' + (isEdit ? 'Edit show' : 'Add a show') + '</h2><button type="button" data-action="cancel-form">Cancel</button></div>' +
-      '<input type="file" accept="image/*" id="posterFileInput" style="display:none">' +
-      '<input type="file" accept="image/*" id="castFileInput" style="display:none">' +
       '<form id="showForm">' +
         '<div class="field"><label>Title</label><input type="text" id="f_title" data-field="title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Nightbound" required></div>' +
         '<div class="field"><label>Original title (optional)</label><input type="text" id="f_origtitle" data-field="originalTitle" value="' + (d.originalTitle||'').replace(/"/g,'&quot;') + '" placeholder="e.g. 로또 1등도 출근합니다"></div>' +
