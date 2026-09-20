@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>TWatched</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -230,7 +230,7 @@
   .chip-x button{ border:none; background:none; padding:0; cursor:pointer; color:var(--text-muted); display:flex; }
   .chip-x .icon{ width:12px; height:12px; }
   .cast-chip{ display:inline-flex; align-items:center; gap:6px; }
-  .cast-chip-img{ width:20px; height:20px; border-radius:50%; object-fit:cover; }
+  .cast-chip-photo{ width:20px; height:20px; border-radius:50%; overflow:hidden; position:relative; display:inline-block; flex:0 0 auto; }
   .cast-chip-init{ width:20px; height:20px; border-radius:50%; background:var(--teal); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; }
   .cast-list{ margin:2px 0 10px; }
   .cast-row{ display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px dashed var(--border); }
@@ -270,10 +270,11 @@
   .field label{ display:block; font-size:12.5px; font-weight:700; color:var(--text-muted); margin-bottom:6px; }
   .field input[type=text], .field input[type=number], .field input[type=date], .field input[type=time], .field input[type=password], .field select{
     width:100%; border:1px solid var(--border); background:var(--surface); color:var(--text);
-    padding:11px 13px; border-radius:12px; font-size:14.5px; font-family:inherit; appearance:none; -webkit-appearance:none;
+    padding:11px 13px; border-radius:12px; font-size:16px; font-family:inherit; appearance:none; -webkit-appearance:none;
   }
   .field select{ background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B6F87' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>"); background-repeat:no-repeat; background-position:right 13px center; background-size:16px; padding-right:36px; }
   .field input:focus, .field select:focus, .day-chip:focus-visible, .opt-chip:focus-visible, .swatch:focus-visible, button:focus-visible{ outline:2px solid var(--teal); outline-offset:2px; }
+  .field input:disabled{ opacity:0.6; }
   .two-col{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .day-chips{ display:flex; gap:6px; flex-wrap:wrap; }
   .day-chip{ width:40px; height:36px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:12.5px; font-weight:700; cursor:pointer; }
@@ -282,7 +283,7 @@
   .opt-chip.active{ background:var(--teal); border-color:var(--teal); color:#fff; }
   .link-btn{ display:inline-block; background:none; border:none; color:var(--teal-strong); font-size:12.5px; font-weight:700; padding:0; margin-top:9px; cursor:pointer; }
   .manage-list-panel{ margin-top:10px; padding:12px; background:var(--surface-2); border-radius:12px; }
-  .manage-list-panel input[type=text]{ width:100%; border:1px solid var(--border); background:var(--surface); color:var(--text); padding:9px 12px; border-radius:10px; font-size:13.5px; font-family:inherit; margin-top:2px; }
+  .manage-list-panel input[type=text]{ width:100%; border:1px solid var(--border); background:var(--surface); color:var(--text); padding:9px 12px; border-radius:10px; font-size:16px; font-family:inherit; margin-top:2px; }
   .swatches{ display:flex; gap:9px; }
   .swatch{ width:34px; height:34px; border-radius:10px; border:2px solid transparent; cursor:pointer; }
   .swatch.active{ border-color:var(--text); }
@@ -318,6 +319,7 @@
   .crop-box--thumbnail{ width:112px; aspect-ratio:3/4; }
   .crop-box--grid{ width:140px; aspect-ratio:2/3; }
   .crop-box--banner{ width:100%; aspect-ratio:21/9; }
+  .crop-box--avatar{ width:112px; aspect-ratio:1/1; border-radius:50%; }
   .crop-zoom{ width:100%; margin-top:8px; accent-color:var(--teal); }
 
   /* ---------- notification toast ---------- */

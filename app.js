@@ -34,9 +34,25 @@
   ];
   var WEEKDAY_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
-  var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Variety','War'];
+  var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','War'];
+  var VARIETY_GENRES_DEFAULT = ['Talk Show','Game Show','Reality','Cooking','Travel','Music','Talent Show','Documentary','Survival','Dating','Comedy Sketch','Awards Show','Interview','Prank'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var APP_VERSION = 'v1.5.0';
+  var CATEGORY_OPTIONS = [{v:'drama',l:'Drama'},{v:'variety',l:'Variety'}];
+  var TZ_OPTIONS = [
+    { v:'TH', l:'Thailand (ICT)', offset:7 },
+    { v:'KR', l:'Korea (KST)', offset:9 },
+    { v:'JP', l:'Japan (JST)', offset:9 },
+    { v:'CN', l:'China (CST)', offset:8 }
+  ];
+  function tzOffset(code){ var m = TZ_OPTIONS.filter(function(t){return t.v===code;})[0]; return m ? m.offset : 7; }
+  function convertToThaiTime(timeStr, tzCode){
+    var diff = tzOffset(tzCode) - 7; // hours ahead of Thailand
+    var parts = (timeStr||'20:00').split(':');
+    var h = parseInt(parts[0],10) || 0, m = parseInt(parts[1],10) || 0;
+    var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
+    return pad(Math.floor(total/60)) + ':' + pad(total%60);
+  }
+  var APP_VERSION = 'v1.6.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -102,7 +118,11 @@
     var joined = days.length <= 1 ? (days[0]||'—') : (days.slice(0,-1).join(', ') + ' & ' + days[days.length-1]);
     var perDrop = show.episodesPerAiring || 1;
     var freqPrefix = perDrop > 1 ? (perDrop + ' new episodes ') : 'New episodes ';
-    var base = freqPrefix + joined + ' at ' + fmtTime(new Date('2000-01-01T'+(show.airTime||'20:00')+':00'));
+    var base = freqPrefix + joined + ' at ' + fmtTime(new Date('2000-01-01T'+(show.airTime||'20:00')+':00')) + ' Thai time';
+    if(show.airTimeZone && show.airTimeZone !== 'TH' && show.airTimeOriginal){
+      var tzInfo = TZ_OPTIONS.filter(function(t){return t.v===show.airTimeZone;})[0];
+      base += ' (' + fmtTime(new Date('2000-01-01T'+show.airTimeOriginal+':00')) + ' ' + (tzInfo?tzInfo.l:show.airTimeZone) + ')';
+    }
     return base + (show.episodeMinutes ? ' · ~' + show.episodeMinutes + ' min each' : '');
   }
   function posterStyle(show){
@@ -113,13 +133,22 @@
   function clamp(n, lo, hi){ return Math.max(lo, Math.min(hi, n)); }
   function defaultCrops(){ return { thumbnail:{x:50,y:50,zoom:100}, grid:{x:50,y:50,zoom:100}, banner:{x:50,y:50,zoom:100} }; }
   function castEntry(c){
-    if(typeof c === 'string') return { name:c, photo:null };
-    return { name:(c && c.name) || '', photo:(c && c.photo) || null };
+    if(typeof c === 'string') return { name:c, photo:null, crop:{x:50,y:50,zoom:100} };
+    return { name:(c && c.name) || '', photo:(c && c.photo) || null, crop:(c && c.crop) || {x:50,y:50,zoom:100} };
+  }
+  function cropImgTag(photoUrl, crop, cls){
+    if(!photoUrl) return '';
+    var c = crop || {x:50,y:50,zoom:100};
+    return '<img class="poster-img ' + (cls||'') + '" src="' + photoUrl + '" alt="" draggable="false" style="object-position:' + c.x + '% ' + c.y + '%; transform:scale(' + (c.zoom/100) + ');">';
   }
   function posterImgTag(showLike, slot, cls){
     if(!showLike || !showLike.posterImage) return '';
     var c = (showLike.posterCrops && showLike.posterCrops[slot]) || {x:50,y:50,zoom:100};
-    return '<img class="poster-img ' + (cls||'') + '" src="' + showLike.posterImage + '" alt="" draggable="false" style="object-position:' + c.x + '% ' + c.y + '%; transform:scale(' + (c.zoom/100) + ');">';
+    return cropImgTag(showLike.posterImage, c, cls);
+  }
+  function castImgTag(castObj, cls){
+    if(!castObj || !castObj.photo) return '';
+    return cropImgTag(castObj.photo, castObj.crop, cls);
   }
   function isWideLayout(){
     return window.matchMedia && window.matchMedia('(min-width: 700px)').matches;
@@ -150,14 +179,29 @@
     ghStatus: null,          // { type: 'info'|'success'|'error', msg }
     lastSyncedAt: null,
     syncing: false,
-    genreOptions: GENRE_OPTIONS_DEFAULT.slice(),
+    genreOptionsByCategory: null,
     nationalityOptions: NATIONALITY_OPTIONS_DEFAULT.slice(),
-    managingList: null       // null | 'genre' | 'nationality'
+    managingList: null,      // null | 'genre' | 'nationality'
+    castCropTargetIndex: null
   };
   var toastTimer = null;
   var dragState = null;
   var castPhotoTargetIndex = null;
   var resizeTimer = null;
+
+  function buildGenreOptionsByCategory(source){
+    if(source && source.genreOptionsByCategory && source.genreOptionsByCategory.drama && source.genreOptionsByCategory.drama.length){
+      return {
+        drama: source.genreOptionsByCategory.drama.slice(),
+        variety: (source.genreOptionsByCategory.variety && source.genreOptionsByCategory.variety.length) ? source.genreOptionsByCategory.variety.slice() : VARIETY_GENRES_DEFAULT.slice()
+      };
+    }
+    if(source && source.genreOptions && source.genreOptions.length){
+      // migrating from the earlier single flat genre list — keep the user's customized set under Drama
+      return { drama: source.genreOptions.slice(), variety: VARIETY_GENRES_DEFAULT.slice() };
+    }
+    return { drama: GENRE_OPTIONS_DEFAULT.slice(), variety: VARIETY_GENRES_DEFAULT.slice() };
+  }
 
   function loadState(){
     try{
@@ -169,10 +213,11 @@
         state.notifyEnabled = (loaded.notifyEnabled !== undefined) ? loaded.notifyEnabled : true;
         state.updatedAt = loaded.updatedAt || 0;
         state.lastNotifyCheck = loaded.lastNotifyCheck || 0;
-        state.genreOptions = (loaded.genreOptions && loaded.genreOptions.length) ? loaded.genreOptions : GENRE_OPTIONS_DEFAULT.slice();
+        state.genreOptionsByCategory = buildGenreOptionsByCategory(loaded);
         state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
       }
     }catch(e){ /* start empty */ }
+    if(!state.genreOptionsByCategory) state.genreOptionsByCategory = buildGenreOptionsByCategory(null);
     try{
       var rawGh = localStorage.getItem(GH_KEY);
       if(rawGh) state.gh = JSON.parse(rawGh);
@@ -183,7 +228,7 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         shows: state.shows, theme: state.theme, notifyEnabled: state.notifyEnabled,
         updatedAt: state.updatedAt, lastNotifyCheck: state.lastNotifyCheck,
-        genreOptions: state.genreOptions, nationalityOptions: state.nationalityOptions
+        genreOptionsByCategory: state.genreOptionsByCategory, nationalityOptions: state.nationalityOptions
       }));
     }catch(e){ /* storage unavailable — app still works in-memory this session */ }
   }
@@ -191,6 +236,10 @@
     try{ localStorage.setItem(GH_KEY, cfg ? JSON.stringify(cfg) : ''); }catch(e){}
   }
   function touch(){ state.updatedAt = Date.now(); persistLocal(); if(state.gh) syncNow().then(render); }
+  function currentGenreList(){
+    var cat = (state.formDraft && state.formDraft.category) || 'drama';
+    return state.genreOptionsByCategory[cat] || (state.genreOptionsByCategory[cat] = []);
+  }
 
   function getShow(id){ return state.shows.filter(function(s){return s.id===id;})[0] || null; }
 
@@ -229,7 +278,7 @@
   }
 
   function syncPayload(){
-    return { shows: state.shows, updatedAt: state.updatedAt, genreOptions: state.genreOptions, nationalityOptions: state.nationalityOptions };
+    return { shows: state.shows, updatedAt: state.updatedAt, genreOptionsByCategory: state.genreOptionsByCategory, nationalityOptions: state.nationalityOptions };
   }
 
   function syncNow(){
@@ -251,7 +300,7 @@
       if(remoteUpdatedAt > state.updatedAt || (neverSyncedLocally && remoteHasData)){
         state.shows = remoteShows;
         state.updatedAt = remoteUpdatedAt;
-        if(remoteData.genreOptions && remoteData.genreOptions.length) state.genreOptions = remoteData.genreOptions;
+        if(remoteData.genreOptionsByCategory || remoteData.genreOptions) state.genreOptionsByCategory = buildGenreOptionsByCategory(remoteData);
         if(remoteData.nationalityOptions && remoteData.nationalityOptions.length) state.nationalityOptions = remoteData.nationalityOptions;
         state.ghSha = remote.sha;
         persistLocal();
@@ -494,7 +543,7 @@
       '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
         posterImgTag(show,'grid') +
         '<span class="badge">' + statusBadge(show) + '</span>' +
-        (show.posterImage ? '' : '<span class="title-on-poster">' + show.title + '</span>') +
+        '<span class="title-on-poster">' + show.title + '</span>' +
       '</div>' +
       '<p class="tile-sub">' + (show.platform||'—') + ' · ' + show.watched + '/' + show.totalEpisodes + '</p>' +
       '<div class="tile-progress"><i style="width:' + pct + '%"></i></div>' +
@@ -561,12 +610,12 @@
       (deleteConfirming ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;">Tap delete again to remove ' + show.title + '.</p>' : '') +
       '<h2 class="detail-title">' + show.title + '</h2>' +
       (show.originalTitle ? '<p class="detail-meta detail-meta--muted" style="margin-top:-2px;">' + show.originalTitle + '</p>' : '') +
-      '<p class="detail-meta">' + [show.nationality].concat(show.genres||[]).filter(Boolean).join(' · ') + '</p>' +
+      '<p class="detail-meta">' + [(CATEGORY_OPTIONS.filter(function(c){return c.v===(show.category||'drama');})[0]||{}).l, show.nationality].concat(show.genres||[]).filter(Boolean).join(' · ') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + (show.channel||'—') + ' · ' + (show.platform||'—') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + scheduleText(show) + '</p>' +
       ((show.cast||[]).length ? '<div class="chip-row">' + show.cast.map(function(c){
         var ce = castEntry(c);
-        return '<span class="chip cast-chip">' + (ce.photo ? '<img class="cast-chip-img" src="'+ce.photo+'" alt="">' : '<span class="cast-chip-init">'+(ce.name.trim().charAt(0).toUpperCase()||'?')+'</span>') + ce.name + '</span>';
+        return '<span class="chip cast-chip">' + (ce.photo ? '<span class="cast-chip-photo">' + castImgTag(ce) + '</span>' : '<span class="cast-chip-init">'+(ce.name.trim().charAt(0).toUpperCase()||'?')+'</span>') + ce.name + '</span>';
       }).join('') + '</div>' : '') +
       '<div class="progress"><div class="progress__bar" style="width:' + pct + '%"></div></div>' +
       '<p class="progress__label">' + show.watched + ' of ' + show.totalEpisodes + ' watched</p>' +
@@ -580,7 +629,8 @@
 
   /* ---------------- FORM ---------------- */
   function emptyDraft(){
-    return { id:null, title:'', originalTitle:'', genres:[], cast:[], nationality:'', totalEpisodes:8, airDays:[0], airTime:'20:00',
+    return { id:null, title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:'drama', totalEpisodes:8, airDays:[0],
+      airTime:'20:00', airTimeZone:'TH', airTimeOriginal:'20:00',
       firstAirDate: isoDateOffset(0), channel:'', platform:'', posterIndex: Math.floor(Math.random()*GRADIENTS.length),
       posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1 };
   }
@@ -601,15 +651,22 @@
       '<input type="text" id="listAddInput_' + listKey + '" data-list-add-input="' + listKey + '" placeholder="Add a new option, press Enter">' +
     '</div>';
   }
+  function categoryField(d){
+    var chips = CATEGORY_OPTIONS.map(function(c){
+      return '<button type="button" class="opt-chip' + ((d.category||'drama')===c.v?' active':'') + '" data-action="set-category" data-value="' + c.v + '">' + c.l + '</button>';
+    }).join('');
+    return '<div class="field"><label>Category</label><div class="day-chips">' + chips + '</div></div>';
+  }
   function genrePickerField(d){
-    var display = state.genreOptions.concat(d.genres.filter(function(g){ return state.genreOptions.indexOf(g) === -1; }));
+    var list = state.genreOptionsByCategory[d.category || 'drama'] || [];
+    var display = list.concat(d.genres.filter(function(g){ return list.indexOf(g) === -1; }));
     var chips = display.map(function(g){
       var active = d.genres.indexOf(g) !== -1;
       return '<button type="button" class="opt-chip' + (active?' active':'') + '" data-action="toggle-genre" data-value="' + g.replace(/"/g,'&quot;') + '">' + g + '</button>';
     }).join('');
-    return '<div class="field"><label>Genre</label><div class="day-chips">' + chips + '</div>' +
+    return '<div class="field"><label>Genre <span style="font-weight:400;color:var(--text-muted);">(' + (CATEGORY_OPTIONS.filter(function(c){return c.v===(d.category||'drama');})[0]||{}).l + ' set)</span></label><div class="day-chips">' + chips + '</div>' +
       '<button type="button" class="link-btn" data-action="toggle-manage-list" data-list="genre">' + (state.managingList==='genre' ? 'Done' : 'Manage list') + '</button>' +
-      (state.managingList === 'genre' ? manageListPanel('genre', state.genreOptions) : '') +
+      (state.managingList === 'genre' ? manageListPanel('genre', list) : '') +
     '</div>';
   }
   function nationalityField(d){
@@ -624,18 +681,28 @@
   }
   function castField(d){
     var rows = d.cast.map(function(c, i){
-      return '<div class="cast-row">' +
+      var cropOpen = state.castCropTargetIndex === i;
+      var row = '<div class="cast-row">' +
         '<button type="button" class="cast-photo" data-action="trigger-cast-photo" data-index="' + i + '" aria-label="Add photo for ' + c.name.replace(/"/g,'&quot;') + '">' +
-          (c.photo ? '<img src="' + c.photo + '" alt="">' : '<span>' + (c.name.trim().charAt(0).toUpperCase()||'?') + '</span>') +
+          (c.photo ? castImgTag(c) : '<span>' + (c.name.trim().charAt(0).toUpperCase()||'?') + '</span>') +
         '</button>' +
         '<span class="cast-name">' + c.name + '</span>' +
+        (c.photo ? '<button type="button" class="link-btn" style="margin:0 6px 0 0;" data-action="toggle-cast-crop" data-index="' + i + '">' + (cropOpen ? 'Done' : 'Adjust') + '</button>' : '') +
         '<button type="button" class="cast-remove" data-action="remove-cast" data-index="' + i + '" aria-label="Remove ' + c.name.replace(/"/g,'&quot;') + '">' + icon('close') + '</button>' +
       '</div>';
+      if(cropOpen && c.photo){
+        row += '<div class="crop-field" style="margin-top:0 0 14px;">' +
+          '<div class="crop-box crop-box--avatar" data-crop-box data-crop-target="cast" data-cast-index="' + i + '">' + castImgTag(c) + '</div>' +
+          '<input type="range" class="crop-zoom" min="100" max="250" value="' + (c.crop.zoom||100) + '" data-crop-zoom data-crop-target="cast" data-cast-index="' + i + '">' +
+          '<p class="crop-hint">Drag the photo to reposition · slide to zoom</p>' +
+        '</div>';
+      }
+      return row;
     }).join('');
     return '<div class="field"><label>Cast</label>' +
       (rows ? '<div class="cast-list">' + rows + '</div>' : '') +
       '<input type="text" id="tagInput_castName" data-cast-name-input placeholder="Type a name, press Enter">' +
-      '<p class="crop-hint">Add a name, then tap their circle to add a photo.</p>' +
+      '<p class="crop-hint">Add a name, then tap their circle to add a photo — use Adjust to crop it.</p>' +
     '</div>';
   }
   function renderFormScreen(){
@@ -681,6 +748,7 @@
         '<div class="field"><label>Title</label><input type="text" id="f_title" data-field="title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Nightbound" required></div>' +
         '<div class="field"><label>Original title (optional)</label><input type="text" id="f_origtitle" data-field="originalTitle" value="' + (d.originalTitle||'').replace(/"/g,'&quot;') + '" placeholder="e.g. 로또 1등도 출근합니다"></div>' +
         posterSection +
+        categoryField(d) +
         genrePickerField(d) +
         nationalityField(d) +
         castField(d) +
@@ -691,11 +759,15 @@
         '<div class="field"><label>Episode length (minutes)</label><input type="number" id="f_epmin" data-field="episodeMinutes" min="1" value="' + (d.episodeMinutes||'') + '" placeholder="e.g. 45"></div>' +
         '<div class="field"><label>Air days</label><div class="day-chips">' + dayChips + '</div></div>' +
         '<div class="field"><label>Episodes released together</label><input type="number" id="f_perdrop" data-field="episodesPerAiring" min="1" value="' + (d.episodesPerAiring||1) + '"><p class="crop-hint">For shows that drop more than one episode at the same time (e.g. 2 episodes every Monday), set this above 1.</p></div>' +
+        '<div class="field"><label>Air time (as broadcast)</label><div class="two-col">' +
+          '<select id="f_origtz" data-tz-input>' + TZ_OPTIONS.map(function(tz){ return '<option value="' + tz.v + '"' + ((d.airTimeZone||'TH')===tz.v?' selected':'') + '>' + tz.l + '</option>'; }).join('') + '</select>' +
+          '<input type="time" id="f_origtime" data-origtime-input value="' + (d.airTimeOriginal||d.airTime) + '">' +
+        '</div></div>' +
+        '<div class="field"><label>Thai time (auto-converted — used for scheduling)</label><input type="time" id="f_thaitime" value="' + d.airTime + '" disabled></div>' +
         '<div class="two-col">' +
-          '<div class="field"><label>Air time</label><input type="time" id="f_time" data-field="airTime" value="' + d.airTime + '"></div>' +
           '<div class="field"><label>Channel</label><input type="text" id="f_channel" data-field="channel" value="' + (d.channel||'').replace(/"/g,'&quot;') + '" placeholder="e.g. ONE31"></div>' +
+          '<div class="field"><label>Platform (where you watch)</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. WeTV"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
         '</div>' +
-        '<div class="field"><label>Platform (where you watch)</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. WeTV"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
         (state.confirmDeleteId === d.id ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this show.</p>' : '') +
         '<div class="form-actions">' +
           (isEdit ? '<button type="button" class="btn btn-danger' + (state.confirmDeleteId===d.id?' danger-confirm':'') + '" data-action="delete-show-form">Delete</button>' : '') +
@@ -808,20 +880,24 @@
     state.formDraft = emptyDraft();
     state.formOrigin = originTab || 'browse';
     state.confirmDeleteId = null;
+    state.castCropTargetIndex = null;
     openOverlay('form');
   }
   function openEditForm(showId, origin){
     var s = getShow(showId);
     if(!s) return;
     state.editingShowId = showId;
-    state.formDraft = { id:s.id, title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '',
-      totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(), airTime:s.airTime, firstAirDate:s.firstAirDate,
+    state.formDraft = { id:s.id, title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category: s.category || 'drama',
+      totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(),
+      airTime:s.airTime, airTimeZone: s.airTimeZone || 'TH', airTimeOriginal: s.airTimeOriginal || s.airTime,
+      firstAirDate:s.firstAirDate,
       channel:s.channel||'', platform:s.platform||'', posterIndex:s.posterIndex||0,
       posterImage: s.posterImage || null,
       posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
       episodeMinutes: s.episodeMinutes || '', episodesPerAiring: s.episodesPerAiring || 1 };
     state.formOrigin = origin || 'browse';
     state.confirmDeleteId = null;
+    state.castCropTargetIndex = null;
     openOverlay('form');
   }
   function closeForm(){
@@ -840,16 +916,16 @@
     if(d.id){
       var s = getShow(d.id);
       if(s){
-        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.totalEpisodes = total;
-        s.airDays = d.airDays.length ? d.airDays : [0]; s.airTime = d.airTime; s.firstAirDate = d.firstAirDate;
+        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.category = d.category || 'drama'; s.totalEpisodes = total;
+        s.airDays = d.airDays.length ? d.airDays : [0]; s.airTime = d.airTime; s.airTimeZone = d.airTimeZone || 'TH'; s.airTimeOriginal = d.airTimeOriginal || d.airTime; s.firstAirDate = d.firstAirDate;
         s.channel = d.channel; s.platform = d.platform; s.posterIndex = d.posterIndex;
         s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
         s.episodeMinutes = mins; s.episodesPerAiring = perDrop;
         if(s.watched > s.totalEpisodes) s.watched = s.totalEpisodes;
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', totalEpisodes:total,
-        airDays: d.airDays.length ? d.airDays : [0], airTime:d.airTime, firstAirDate:d.firstAirDate,
+      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category: d.category || 'drama', totalEpisodes:total,
+        airDays: d.airDays.length ? d.airDays : [0], airTime:d.airTime, airTimeZone: d.airTimeZone || 'TH', airTimeOriginal: d.airTimeOriginal || d.airTime, firstAirDate:d.firstAirDate,
         channel:d.channel, platform:d.platform, posterIndex:d.posterIndex,
         posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
         episodeMinutes: mins, episodesPerAiring: perDrop, watched:0 });
@@ -889,7 +965,7 @@
       if(remoteShows.length && (!state.updatedAt || remoteUpdatedAt > state.updatedAt)){
         state.shows = remoteShows;
         state.updatedAt = remoteUpdatedAt;
-        if(remote.data.genreOptions && remote.data.genreOptions.length) state.genreOptions = remote.data.genreOptions;
+        if(remote.data.genreOptionsByCategory || remote.data.genreOptions) state.genreOptionsByCategory = buildGenreOptionsByCategory(remote.data);
         if(remote.data.nationalityOptions && remote.data.nationalityOptions.length) state.nationalityOptions = remote.data.nationalityOptions;
       }
       state.ghSha = remote.sha;
@@ -969,6 +1045,15 @@
           if(pos === -1) arr.push(val); else arr.splice(pos,1);
           render();
         })(); break;
+      case 'set-category':
+        (function(){
+          var newCat = btn.getAttribute('data-value');
+          if((state.formDraft.category||'drama') !== newCat){
+            state.formDraft.category = newCat;
+            state.formDraft.genres = []; // drama and variety use different genre vocabularies
+          }
+          render();
+        })(); break;
       case 'toggle-manage-list':
         state.managingList = (state.managingList === btn.getAttribute('data-list')) ? null : btn.getAttribute('data-list');
         render(); break;
@@ -976,7 +1061,7 @@
         (function(){
           var listKey = btn.getAttribute('data-list');
           var val = btn.getAttribute('data-value');
-          var arr = listKey === 'genre' ? state.genreOptions : state.nationalityOptions;
+          var arr = listKey === 'genre' ? currentGenreList() : state.nationalityOptions;
           var pos = arr.indexOf(val);
           if(pos !== -1){ arr.splice(pos,1); touch(); }
           render();
@@ -996,6 +1081,13 @@
         (function(){
           var idx = parseInt(btn.getAttribute('data-index'),10);
           state.formDraft.cast.splice(idx,1);
+          if(state.castCropTargetIndex === idx) state.castCropTargetIndex = null;
+          render();
+        })(); break;
+      case 'toggle-cast-crop':
+        (function(){
+          var idx = parseInt(btn.getAttribute('data-index'),10);
+          state.castCropTargetIndex = (state.castCropTargetIndex === idx) ? null : idx;
           render();
         })(); break;
       case 'remove-poster-image':
@@ -1046,11 +1138,40 @@
     }
   });
 
+  function resolveCropRef(el){
+    if(!el || !state.formDraft) return null;
+    var target = el.getAttribute('data-crop-target') || 'poster';
+    if(target === 'cast'){
+      var idx = parseInt(el.getAttribute('data-cast-index'),10);
+      var c = state.formDraft.cast[idx];
+      if(!c) return null;
+      if(!c.crop) c.crop = {x:50,y:50,zoom:100};
+      return c.crop;
+    }
+    var slot = el.getAttribute('data-slot');
+    if(!slot) return null;
+    if(!state.formDraft.posterCrops) state.formDraft.posterCrops = defaultCrops();
+    if(!state.formDraft.posterCrops[slot]) state.formDraft.posterCrops[slot] = {x:50,y:50,zoom:100};
+    return state.formDraft.posterCrops[slot];
+  }
   document.addEventListener('input', function(e){
     var t = e.target;
+    if((t.matches('[data-tz-input]') || t.matches('[data-origtime-input]')) && state.formDraft){
+      var tzSel = document.getElementById('f_origtz');
+      var timeInput = document.getElementById('f_origtime');
+      var tz = tzSel ? tzSel.value : 'TH';
+      var origTime = timeInput ? timeInput.value : '20:00';
+      state.formDraft.airTimeZone = tz;
+      state.formDraft.airTimeOriginal = origTime;
+      var thai = convertToThaiTime(origTime, tz);
+      state.formDraft.airTime = thai;
+      var thaiEl = document.getElementById('f_thaitime');
+      if(thaiEl) thaiEl.value = thai;
+      return;
+    }
     if(t.matches('[data-crop-zoom]') && state.formDraft){
-      var slot = t.getAttribute('data-slot');
-      var c = state.formDraft.posterCrops[slot] || (state.formDraft.posterCrops[slot] = {x:50,y:50,zoom:100});
+      var c = resolveCropRef(t);
+      if(!c) return;
       c.zoom = parseInt(t.value,10) || 100;
       var box = t.closest('.crop-field');
       var img = box && box.querySelector('.poster-img');
@@ -1065,6 +1186,19 @@
     }
   });
   document.addEventListener('change', function(e){
+    if((e.target.matches && (e.target.matches('[data-tz-input]') || e.target.matches('[data-origtime-input]'))) && state.formDraft){
+      var tzSel = document.getElementById('f_origtz');
+      var timeInput = document.getElementById('f_origtime');
+      var tz = tzSel ? tzSel.value : 'TH';
+      var origTime = timeInput ? timeInput.value : '20:00';
+      state.formDraft.airTimeZone = tz;
+      state.formDraft.airTimeOriginal = origTime;
+      var thai = convertToThaiTime(origTime, tz);
+      state.formDraft.airTime = thai;
+      var thaiEl = document.getElementById('f_thaitime');
+      if(thaiEl) thaiEl.value = thai;
+      return;
+    }
     if(e.target && e.target.id === 'posterFileInput' && state.formDraft){
       var file = e.target.files && e.target.files[0];
       if(!file) return;
@@ -1083,6 +1217,7 @@
       readAndDownscaleImage(castFile, 160, 0.75, function(dataUri){
         if(dataUri && state.formDraft && state.formDraft.cast[idx]){
           state.formDraft.cast[idx].photo = dataUri;
+          state.castCropTargetIndex = idx;
           render();
         }
       });
@@ -1091,8 +1226,8 @@
   document.addEventListener('pointerdown', function(e){
     var box = e.target.closest('[data-crop-box]');
     if(!box || !state.formDraft) return;
-    var slot = box.getAttribute('data-slot');
-    var crop = (state.formDraft.posterCrops && state.formDraft.posterCrops[slot]) || {x:50,y:50,zoom:100};
+    var crop = resolveCropRef(box);
+    if(!crop) return;
     var rect = box.getBoundingClientRect();
     var imgEl = box.querySelector('.poster-img');
     var nw = (imgEl && imgEl.naturalWidth) || rect.width || 1;
@@ -1101,7 +1236,7 @@
     var overflowX = Math.max(0, nw * coverScale - (rect.width||0));
     var overflowY = Math.max(0, nh * coverScale - (rect.height||0));
     dragState = {
-      slot:slot, box:box, startClientX:e.clientX, startClientY:e.clientY,
+      box:box, startClientX:e.clientX, startClientY:e.clientY,
       startX:crop.x, startY:crop.y, zoom: crop.zoom || 100,
       overflowX: overflowX, overflowY: overflowY, pointerId:e.pointerId
     };
@@ -1110,7 +1245,7 @@
   });
   document.addEventListener('pointermove', function(e){
     if(!dragState || !state.formDraft) return;
-    var crop = state.formDraft.posterCrops[dragState.slot];
+    var crop = resolveCropRef(dragState.box);
     if(!crop) return;
     var zoomFactor = (dragState.zoom || 100) / 100;
     var baseDx = (e.clientX - dragState.startClientX) / zoomFactor;
@@ -1159,7 +1294,7 @@
       var listKey = e.target.getAttribute('data-list-add-input');
       var newVal = e.target.value.trim();
       if(newVal){
-        var arr = listKey === 'genre' ? state.genreOptions : state.nationalityOptions;
+        var arr = listKey === 'genre' ? currentGenreList() : state.nationalityOptions;
         if(arr.indexOf(newVal) === -1){ arr.push(newVal); touch(); }
         pendingFocusId = e.target.id;
         render();
