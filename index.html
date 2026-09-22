@@ -48,23 +48,24 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   html{ overflow:hidden; overscroll-behavior:none; }
-  /* This — not #app's own size — is what actually paints the strip below the tab bar. Per the
+  /* This — not #app's own size — is what actually paints the strip below #app's box. Per the
      CSS spec, the background used for the whole canvas/viewport comes from <html>, or from
      <body> if html has none — and it's painted across the FULL physical screen, regardless of
-     how tall html/body/#app themselves actually are. A real, on-device diagnostic finally
-     confirmed this: #app measures exactly 894px tall (matching window.innerHeight) even though
-     the physical screen is 956px — so #app's own box genuinely, correctly ends at 894px; that
-     894px isn't a bug to fix by resizing anything, it's just the real usable app surface. The
-     remaining 62px past it was never a gap in #app at all — it was always this canvas
-     background showing through underneath. Every previous attempt tried to stretch #app's own
-     box down to 956px, which was solving a problem #app didn't actually have.
-     What DID need fixing: this was painting --bg (the page's cream/navy background), not
-     --surface (the tab bar's own white/dark color) — so the strip looked like a mismatched gap
-     instead of a continuation of the bar sitting right above it. Matching it to --surface here
-     makes that strip visually read as part of the tab bar, with no measuring required. */
+     how tall html/body/#app themselves actually are. #app measures exactly 894px tall (matching
+     window.innerHeight) even though the physical screen is 956px — so #app's own box genuinely,
+     correctly ends at 894px; that isn't a bug to fix by resizing anything, it's just the real
+     usable app surface. The remaining 62px past it was never a gap in #app at all — it was
+     always this canvas background showing through underneath.
+     This used to match --surface (the old fixed tab bar's own color) so the strip read as a
+     continuation of the bar sitting right above it. Now that the tab bar is inline content
+     instead of a fixed bar, a short screen (e.g. Settings) leaves ordinary --bg page background
+     between its content's end and 894px, then hits this strip right after — matching --surface
+     here created a second, different-colored band right below the first, which read as a
+     broken gap rather than a smooth page end. Matching --bg instead makes the strip a seamless
+     continuation of the page background, which is what's actually adjacent to it now. */
   body{
     overflow:hidden;
-    background:var(--surface); font-family: var(--font-body); overscroll-behavior:none;
+    background:var(--bg); font-family: var(--font-body); overscroll-behavior:none;
     touch-action: manipulation;
   }
   @media (prefers-reduced-motion: reduce){
@@ -402,6 +403,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=175"></script>
+<script src="app.js?v=176"></script>
 </body>
 </html>
