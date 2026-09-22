@@ -203,6 +203,48 @@
   .tile-sub{ font-size:11.5px; color:var(--text-muted); margin:8px 2px 0; }
   .tile-progress{ height:3px; border-radius:3px; background:var(--border); margin:6px 2px 0; overflow:hidden; }
   .tile-progress i{ display:block; height:100%; background:var(--teal); }
+  .tile-rm{ position:absolute; top:6px; right:6px; width:24px; height:24px; border-radius:50%; background:rgba(10,10,16,0.62); color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .tile-rm .icon{ width:13px; height:13px; }
+
+  /* ---------- shelves ---------- */
+  .row-between{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .edit-toggle{ flex:0 0 auto; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:12.5px; font-weight:700; padding:8px 15px; border-radius:999px; cursor:pointer; margin-top:14px; }
+  .edit-toggle.active{ background:var(--teal); border-color:var(--teal); color:#fff; }
+  .shelf{ margin-bottom:22px; }
+  .shelf-head{ display:flex; align-items:center; gap:8px; margin-bottom:10px; min-height:34px; }
+  .shelf-title{ font-family:var(--font-display); font-style:italic; font-weight:600; font-size:18px; margin:0; flex:1 1 auto; }
+  .shelf-title--muted{ color:var(--text-muted); font-style:normal; }
+  .shelf-rename-input{ flex:1 1 auto; font-family:var(--font-display); font-style:italic; font-weight:600; font-size:16px; border:1px solid var(--border); background:var(--surface); color:var(--text); padding:7px 11px; border-radius:10px; }
+  .shelf-ctl{ display:flex; gap:5px; flex:0 0 auto; }
+  .icon-btn-sm{ width:30px; height:30px; border-radius:50%; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .icon-btn-sm .icon{ width:15px; height:15px; }
+  .icon-btn-sm--danger{ color:var(--danger); border-color:rgba(168,64,47,0.35); }
+  .shelf-row{ display:flex; gap:12px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; }
+  .shelf-row .tile{ width:112px; flex:0 0 auto; }
+  .shelf-empty{ font-size:12.5px; color:var(--text-muted); background:var(--surface); border:1px dashed var(--border); border-radius:14px; padding:16px; text-align:center; }
+  .shelf-addshows-btn{ display:inline-flex; align-items:center; gap:6px; margin-top:10px; background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted); font-size:12.5px; font-weight:700; padding:8px 14px; border-radius:999px; cursor:pointer; }
+  .shelf-addshows-btn .icon{ width:14px; height:14px; }
+  .new-folder-row{ display:flex; gap:8px; align-items:center; background:var(--surface); border:1.5px dashed var(--border); border-radius:14px; padding:12px 14px; margin-top:6px; }
+  .new-folder-row input{ flex:1 1 auto; border:none; background:none; font-size:14.5px; font-family:inherit; color:var(--text); min-width:0; }
+  .new-folder-row input:focus{ outline:none; }
+  .new-folder-row button{ flex:0 0 auto; background:var(--gold); color:#241a05; border:none; border-radius:999px; padding:9px 16px; font-size:12.5px; font-weight:700; cursor:pointer; }
+
+  /* ---------- manage categories panel ---------- */
+  .category-card{ background:var(--surface-2); border-radius:14px; padding:13px 14px; margin:10px 0; }
+  .category-card-head{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .category-card-head input{ flex:1 1 auto; border:1px solid var(--border); background:var(--surface); color:var(--text); padding:9px 12px; border-radius:10px; font-size:15px; font-family:inherit; min-width:0; }
+  .mini-danger-btn{ flex:0 0 auto; width:36px; height:36px; border-radius:10px; border:1px solid rgba(168,64,47,0.3); background:rgba(168,64,47,0.08); color:var(--danger); display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .mini-danger-btn .icon{ width:15px; height:15px; }
+  .category-add-input{ width:100%; border:1px solid var(--border); background:var(--surface); color:var(--text); padding:9px 12px; border-radius:10px; font-size:15px; font-family:inherit; margin-top:8px; }
+
+  /* ---------- add-shows-to-folder checklist ---------- */
+  .checklist-row{ width:100%; display:flex; align-items:center; gap:11px; padding:10px 4px; border-bottom:1px dashed var(--border); background:none; border-left:none; border-right:none; border-top:none; text-align:left; cursor:pointer; color:inherit; font-family:inherit; }
+  .checklist-row:last-of-type{ border-bottom:none; }
+  .checklist-cb{ width:24px; height:24px; border-radius:7px; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; flex:0 0 auto; color:#fff; }
+  .checklist-cb .icon{ width:14px; height:14px; }
+  .checklist-row.checked .checklist-cb{ background:var(--teal); border-color:var(--teal); }
+  .checklist-poster{ width:34px; height:51px; border-radius:8px; flex:0 0 auto; position:relative; overflow:hidden; }
+  .checklist-title{ font-size:14px; font-weight:600; }
 
   .fab{
     position:absolute; right:20px; bottom:calc(78px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; border-radius:50%; border:none;
@@ -363,6 +405,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=170"></script>
+<script src="app.js?v=171"></script>
 </body>
 </html>

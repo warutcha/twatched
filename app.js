@@ -16,7 +16,9 @@
     lock: '<rect x="6" y="10" width="12" height="9" rx="1.5"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/>',
     close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
     ticket: '<path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a1.6 1.6 0 0 0 0 3v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a1.6 1.6 0 0 0 0-3z"/>',
-    cloud: '<path d="M7 18a4 4 0 0 1-.6-7.96A5 5 0 0 1 16 9.2 3.8 3.8 0 0 1 15.4 18H7Z"/>'
+    cloud: '<path d="M7 18a4 4 0 0 1-.6-7.96A5 5 0 0 1 16 9.2 3.8 3.8 0 0 1 15.4 18H7Z"/>',
+    up: '<path d="M6 15l6-6 6 6"/>',
+    down: '<path d="M6 9l6 6 6-6"/>'
   };
   function icon(name, cls){
     return '<svg class="icon ' + (cls||'') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICON_PATHS[name]||'') + '</svg>';
@@ -37,7 +39,6 @@
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','War'];
   var VARIETY_GENRES_DEFAULT = ['Talk Show','Game Show','Reality','Cooking','Travel','Music','Talent Show','Documentary','Survival','Dating','Comedy Sketch','Awards Show','Interview','Prank'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
-  var CATEGORY_OPTIONS = [{v:'drama',l:'Drama'},{v:'variety',l:'Variety'}];
   var TZ_OPTIONS = [
     { v:'TH', l:'Thailand (ICT)', offset:7 },
     { v:'KR', l:'Korea (KST)', offset:9 },
@@ -52,10 +53,11 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.7.0';
+  var APP_VERSION = 'v1.8.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
+  function uid(prefix){ return prefix + Date.now() + Math.floor(Math.random()*1000); }
   function isoDateOffset(days){
     var d = new Date();
     d.setHours(0,0,0,0);
@@ -179,9 +181,14 @@
     ghStatus: null,          // { type: 'info'|'success'|'error', msg }
     lastSyncedAt: null,
     syncing: false,
-    genreOptionsByCategory: null,
+    categories: null,
+    folders: [],
     nationalityOptions: NATIONALITY_OPTIONS_DEFAULT.slice(),
-    managingList: null,      // null | 'genre' | 'nationality'
+    managingList: null,      // null | 'nationality'
+    managingCategories: false,
+    browseEditMode: false,
+    renamingFolderId: null,
+    addingShowsFolderId: null,
     castCropTargetIndex: null
   };
   var toastTimer = null;
@@ -189,19 +196,29 @@
   var castPhotoTargetIndex = null;
   var resizeTimer = null;
 
-  function buildGenreOptionsByCategory(source){
+  function buildCategories(source){
+    if(source && source.categories && source.categories.length){
+      return source.categories.map(function(c){ return { id:c.id, name:c.name, genres:(c.genres||[]).slice() }; });
+    }
     if(source && source.genreOptionsByCategory && source.genreOptionsByCategory.drama && source.genreOptionsByCategory.drama.length){
-      return {
-        drama: source.genreOptionsByCategory.drama.slice(),
-        variety: (source.genreOptionsByCategory.variety && source.genreOptionsByCategory.variety.length) ? source.genreOptionsByCategory.variety.slice() : VARIETY_GENRES_DEFAULT.slice()
-      };
+      return [
+        { id:'drama', name:'Drama', genres: source.genreOptionsByCategory.drama.slice() },
+        { id:'variety', name:'Variety', genres: (source.genreOptionsByCategory.variety && source.genreOptionsByCategory.variety.length) ? source.genreOptionsByCategory.variety.slice() : VARIETY_GENRES_DEFAULT.slice() }
+      ];
     }
     if(source && source.genreOptions && source.genreOptions.length){
-      // migrating from the earlier single flat genre list — keep the user's customized set under Drama
-      return { drama: source.genreOptions.slice(), variety: VARIETY_GENRES_DEFAULT.slice() };
+      return [
+        { id:'drama', name:'Drama', genres: source.genreOptions.slice() },
+        { id:'variety', name:'Variety', genres: VARIETY_GENRES_DEFAULT.slice() }
+      ];
     }
-    return { drama: GENRE_OPTIONS_DEFAULT.slice(), variety: VARIETY_GENRES_DEFAULT.slice() };
+    return [
+      { id:'drama', name:'Drama', genres: GENRE_OPTIONS_DEFAULT.slice() },
+      { id:'variety', name:'Variety', genres: VARIETY_GENRES_DEFAULT.slice() }
+    ];
   }
+  function getCategory(id){ return state.categories.filter(function(c){return c.id===id;})[0] || null; }
+  function getFolder(id){ return state.folders.filter(function(f){return f.id===id;})[0] || null; }
 
   function loadState(){
     try{
@@ -209,15 +226,17 @@
       if(raw){
         var loaded = JSON.parse(raw);
         state.shows = loaded.shows || [];
+        state.shows.forEach(function(s){ if(!s.folderIds) s.folderIds = []; });
         state.theme = loaded.theme || 'system';
         state.notifyEnabled = (loaded.notifyEnabled !== undefined) ? loaded.notifyEnabled : true;
         state.updatedAt = loaded.updatedAt || 0;
         state.lastNotifyCheck = loaded.lastNotifyCheck || 0;
-        state.genreOptionsByCategory = buildGenreOptionsByCategory(loaded);
+        state.categories = buildCategories(loaded);
+        state.folders = (loaded.folders && loaded.folders.length) ? loaded.folders : [];
         state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
       }
     }catch(e){ /* start empty */ }
-    if(!state.genreOptionsByCategory) state.genreOptionsByCategory = buildGenreOptionsByCategory(null);
+    if(!state.categories) state.categories = buildCategories(null);
     try{
       var rawGh = localStorage.getItem(GH_KEY);
       if(rawGh) state.gh = JSON.parse(rawGh);
@@ -228,7 +247,7 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         shows: state.shows, theme: state.theme, notifyEnabled: state.notifyEnabled,
         updatedAt: state.updatedAt, lastNotifyCheck: state.lastNotifyCheck,
-        genreOptionsByCategory: state.genreOptionsByCategory, nationalityOptions: state.nationalityOptions
+        categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions
       }));
     }catch(e){ /* storage unavailable — app still works in-memory this session */ }
   }
@@ -237,8 +256,8 @@
   }
   function touch(){ state.updatedAt = Date.now(); persistLocal(); if(state.gh) syncNow().then(render); }
   function currentGenreList(){
-    var cat = (state.formDraft && state.formDraft.category) || 'drama';
-    return state.genreOptionsByCategory[cat] || (state.genreOptionsByCategory[cat] = []);
+    var cat = getCategory(state.formDraft && state.formDraft.category);
+    return cat ? cat.genres : [];
   }
 
   function getShow(id){ return state.shows.filter(function(s){return s.id===id;})[0] || null; }
@@ -278,7 +297,7 @@
   }
 
   function syncPayload(){
-    return { shows: state.shows, updatedAt: state.updatedAt, genreOptionsByCategory: state.genreOptionsByCategory, nationalityOptions: state.nationalityOptions };
+    return { shows: state.shows, updatedAt: state.updatedAt, categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions };
   }
 
   function syncNow(){
@@ -299,8 +318,10 @@
 
       if(remoteUpdatedAt > state.updatedAt || (neverSyncedLocally && remoteHasData)){
         state.shows = remoteShows;
+        state.shows.forEach(function(s){ if(!s.folderIds) s.folderIds = []; });
         state.updatedAt = remoteUpdatedAt;
-        if(remoteData.genreOptionsByCategory || remoteData.genreOptions) state.genreOptionsByCategory = buildGenreOptionsByCategory(remoteData);
+        if(remoteData.categories || remoteData.genreOptionsByCategory || remoteData.genreOptions) state.categories = buildCategories(remoteData);
+        if(remoteData.folders) state.folders = remoteData.folders;
         if(remoteData.nationalityOptions && remoteData.nationalityOptions.length) state.nationalityOptions = remoteData.nationalityOptions;
         state.ghSha = remote.sha;
         persistLocal();
@@ -409,6 +430,9 @@
     }
     if(state.overlay === 'form'){
       html += '<div class="app-screen app-screen--overlay form-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderFormScreen() + '</div>';
+    }
+    if(state.overlay === 'addshows'){
+      html += '<div class="app-screen app-screen--overlay form-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderAddShowsPanel() + '</div>';
     }
 
     appBody.innerHTML = html;
@@ -552,17 +576,19 @@
     if(info.aired) return 'Ep ' + info.number + ' up next';
     return 'Caught up';
   }
-  function tileMarkup(show){
+  function tileMarkup(show, removeFolderId){
     var pct = Math.round((show.watched/show.totalEpisodes)*100);
-    return '<button class="tile" data-action="open-detail" data-show="' + show.id + '">' +
+    var rmBtn = removeFolderId ? '<button class="tile-rm" data-action="remove-from-folder" data-folder="' + removeFolderId + '" data-show="' + show.id + '" aria-label="Remove from this folder">' + icon('close') + '</button>' : '';
+    return '<div class="tile" data-action="open-detail" data-show="' + show.id + '">' +
       '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
         posterImgTag(show,'grid') +
         '<span class="badge">' + statusBadge(show) + '</span>' +
         '<span class="title-on-poster">' + show.title + '</span>' +
+        rmBtn +
       '</div>' +
       '<p class="tile-sub">' + (show.platform||'—') + ' · ' + show.watched + '/' + show.totalEpisodes + '</p>' +
       '<div class="tile-progress"><i style="width:' + pct + '%"></i></div>' +
-    '</button>';
+    '</div>';
   }
   function renderBrowse(){
     if(isWideLayout()){
@@ -582,12 +608,48 @@
       return out;
     }
     var out2 = '<div class="screen-pad" style="position:relative;min-height:100%;">';
-    out2 += '<h1 class="screen-title">Browse</h1><p class="screen-kicker">Everything you\'re tracking. Tap a title to edit its details.</p>';
+    out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (state.browseEditMode ? 'Rename, reorder, or remove shows from folders.' : 'Tap a poster to open it.') + '</p></div>' +
+      '<button class="edit-toggle' + (state.browseEditMode?' active':'') + '" data-action="toggle-browse-edit">' + (state.browseEditMode?'Done':'Edit') + '</button></div>';
     if(state.shows.length===0){
       out2 += '<div class="empty-block"><span>' + icon('ticket') + '</span><strong>Nothing added yet</strong><p>Tap the + button to add your first show.</p></div>';
     } else {
-      out2 += '<div class="browse-grid">' + state.shows.map(tileMarkup).join('') + '</div>';
+      state.folders.forEach(function(f, fi){
+        var items = state.shows.filter(function(s){ return (s.folderIds||[]).indexOf(f.id) !== -1; });
+        out2 += '<div class="shelf">';
+        out2 += '<div class="shelf-head">';
+        if(state.renamingFolderId === f.id){
+          out2 += '<input type="text" id="renameFolderInput_' + f.id + '" class="shelf-rename-input" value="' + f.name.replace(/"/g,'&quot;') + '" data-action-input="rename-folder" data-folder="' + f.id + '">' +
+            '<button class="icon-btn-sm" data-action="confirm-rename-folder" data-folder="' + f.id + '" aria-label="Save name">' + icon('check') + '</button>';
+        } else {
+          out2 += '<h3 class="shelf-title">' + f.name + '</h3>';
+          if(state.browseEditMode){
+            out2 += '<div class="shelf-ctl">' +
+              '<button class="icon-btn-sm" data-action="move-folder" data-folder="' + f.id + '" data-dir="-1"' + (fi===0?' disabled style="opacity:.35;"':'') + ' aria-label="Move up">' + icon('up') + '</button>' +
+              '<button class="icon-btn-sm" data-action="move-folder" data-folder="' + f.id + '" data-dir="1"' + (fi===state.folders.length-1?' disabled style="opacity:.35;"':'') + ' aria-label="Move down">' + icon('down') + '</button>' +
+              '<button class="icon-btn-sm" data-action="rename-folder" data-folder="' + f.id + '" aria-label="Rename">' + icon('pencil') + '</button>' +
+              '<button class="icon-btn-sm icon-btn-sm--danger" data-action="delete-folder" data-folder="' + f.id + '" aria-label="Delete folder">' + icon('trash') + '</button>' +
+            '</div>';
+          }
+        }
+        out2 += '</div>';
+        if(items.length === 0){
+          out2 += '<div class="shelf-empty">No shows here yet.</div>';
+        } else {
+          out2 += '<div class="shelf-row">' + items.map(function(s){ return tileMarkup(s, state.browseEditMode ? f.id : null); }).join('') + '</div>';
+        }
+        if(state.browseEditMode){
+          out2 += '<button class="shelf-addshows-btn" data-action="open-addshows" data-folder="' + f.id + '">' + icon('plus') + ' Add shows</button>';
+        }
+        out2 += '</div>';
+      });
+      var unsorted = state.shows.filter(function(s){ return !(s.folderIds && s.folderIds.length); });
+      if(unsorted.length){
+        out2 += '<div class="shelf shelf-unsorted"><div class="shelf-head"><h3 class="shelf-title shelf-title--muted">Unsorted</h3></div>' +
+          '<div class="shelf-row">' + unsorted.map(function(s){ return tileMarkup(s, null); }).join('') + '</div></div>';
+      }
     }
+    out2 += '<div class="new-folder-row"><input type="text" id="newFolderInput" data-action-input="new-folder" placeholder="New folder name…">' +
+      '<button type="button" data-action="add-folder">Create</button></div>';
     out2 += '</div>';
     return out2;
   }
@@ -624,7 +686,7 @@
       (deleteConfirming ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;">Tap delete again to remove ' + show.title + '.</p>' : '') +
       '<h2 class="detail-title">' + show.title + '</h2>' +
       (show.originalTitle ? '<p class="detail-meta detail-meta--muted" style="margin-top:-2px;">' + show.originalTitle + '</p>' : '') +
-      '<p class="detail-meta">' + [(CATEGORY_OPTIONS.filter(function(c){return c.v===(show.category||'drama');})[0]||{}).l, show.nationality].concat(show.genres||[]).filter(Boolean).join(' · ') + '</p>' +
+      '<p class="detail-meta">' + [(getCategory(show.category)||{}).name, show.nationality].concat(show.genres||[]).filter(Boolean).join(' · ') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + (show.channel||'—') + ' · ' + (show.platform||'—') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + scheduleText(show) + '</p>' +
       ((show.cast||[]).length ? '<div class="chip-row">' + show.cast.map(function(c){
@@ -643,7 +705,7 @@
 
   /* ---------------- FORM ---------------- */
   function emptyDraft(){
-    return { id:null, title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:'drama', totalEpisodes:8, airDays:[0],
+    return { id:null, title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:(state.categories[0]?state.categories[0].id:''), folderIds:[], totalEpisodes:8, airDays:[0],
       airTime:'20:00', airTimeZone:'TH', airTimeOriginal:'20:00',
       firstAirDate: isoDateOffset(0), channel:'', platform:'', posterIndex: Math.floor(Math.random()*GRADIENTS.length),
       posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1 };
@@ -666,21 +728,49 @@
     '</div>';
   }
   function categoryField(d){
-    var chips = CATEGORY_OPTIONS.map(function(c){
-      return '<button type="button" class="opt-chip' + ((d.category||'drama')===c.v?' active':'') + '" data-action="set-category" data-value="' + c.v + '">' + c.l + '</button>';
+    var chips = state.categories.map(function(c){
+      return '<button type="button" class="opt-chip' + (d.category===c.id?' active':'') + '" data-action="set-category" data-value="' + c.id + '">' + c.name + '</button>';
     }).join('');
-    return '<div class="field"><label>Category</label><div class="day-chips">' + chips + '</div></div>';
+    return '<div class="field"><label>Category</label><div class="day-chips">' + chips + '</div>' +
+      '<button type="button" class="link-btn" data-action="toggle-manage-categories">' + (state.managingCategories ? 'Done' : 'Manage categories & genres') + '</button>' +
+      (state.managingCategories ? renderManageCategoriesPanel() : '') +
+    '</div>';
+  }
+  function renderManageCategoriesPanel(){
+    var out = '';
+    state.categories.forEach(function(c){
+      out += '<div class="category-card">' +
+        '<div class="category-card-head">' +
+          '<input type="text" value="' + c.name.replace(/"/g,'&quot;') + '" data-action-input="rename-category" data-cat="' + c.id + '">' +
+          '<button type="button" class="mini-danger-btn" data-action="delete-category" data-cat="' + c.id + '" aria-label="Delete ' + c.name.replace(/"/g,'&quot;') + '">' + icon('trash') + '</button>' +
+        '</div>' +
+        (c.genres.length ? '<div class="chip-row" style="margin-top:0;">' + c.genres.map(function(g){
+          return '<span class="chip chip-x">' + g + '<button type="button" data-action="remove-genre-from-cat" data-cat="' + c.id + '" data-genre="' + g.replace(/"/g,'&quot;') + '">' + icon('close') + '</button></span>';
+        }).join('') + '</div>' : '<p class="crop-hint" style="margin:0 0 8px;">No genres yet.</p>') +
+        '<input type="text" class="category-add-input" data-action-input="add-genre-to-cat" data-cat="' + c.id + '" placeholder="Add a genre, press Enter">' +
+      '</div>';
+    });
+    out += '<div class="category-card"><label style="display:block;font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:6px;">NEW CATEGORY</label>' +
+      '<input type="text" id="newCategoryInput" class="category-add-input" placeholder="Category name, press Enter"></div>';
+    return out;
   }
   function genrePickerField(d){
-    var list = state.genreOptionsByCategory[d.category || 'drama'] || [];
+    var cat = getCategory(d.category);
+    var list = cat ? cat.genres : [];
     var display = list.concat(d.genres.filter(function(g){ return list.indexOf(g) === -1; }));
     var chips = display.map(function(g){
       var active = d.genres.indexOf(g) !== -1;
       return '<button type="button" class="opt-chip' + (active?' active':'') + '" data-action="toggle-genre" data-value="' + g.replace(/"/g,'&quot;') + '">' + g + '</button>';
     }).join('');
-    return '<div class="field"><label>Genre <span style="font-weight:400;color:var(--text-muted);">(' + (CATEGORY_OPTIONS.filter(function(c){return c.v===(d.category||'drama');})[0]||{}).l + ' set)</span></label><div class="day-chips">' + chips + '</div>' +
-      '<button type="button" class="link-btn" data-action="toggle-manage-list" data-list="genre">' + (state.managingList==='genre' ? 'Done' : 'Manage list') + '</button>' +
-      (state.managingList === 'genre' ? manageListPanel('genre', list) : '') +
+    return '<div class="field"><label>Genre <span style="font-weight:400;color:var(--text-muted);">(' + (cat?cat.name:'—') + ' set)</span></label><div class="day-chips">' + (chips || '<span class="crop-hint" style="margin:0;">No genres in this category yet — add some via Manage categories.</span>') + '</div></div>';
+  }
+  function folderField(d){
+    var chips = state.folders.map(function(f){
+      var active = d.folderIds.indexOf(f.id) !== -1;
+      return '<button type="button" class="opt-chip' + (active?' active':'') + '" data-action="toggle-show-folder" data-folder="' + f.id + '">' + f.name + '</button>';
+    }).join('');
+    return '<div class="field"><label>Folders</label><div class="day-chips">' + (chips || '<span class="crop-hint" style="margin:0;">No folders yet.</span>') + '</div>' +
+      '<input type="text" id="newFolderFromForm" class="category-add-input" style="margin-top:10px;" data-action-input="new-folder-from-form" placeholder="Create a new folder, press Enter">' +
     '</div>';
   }
   function nationalityField(d){
@@ -763,6 +853,7 @@
         categoryField(d) +
         genrePickerField(d) +
         nationalityField(d) +
+        folderField(d) +
         castField(d) +
         '<div class="two-col">' +
           '<div class="field"><label>Total episodes</label><input type="number" id="f_total" data-field="totalEpisodes" min="1" value="' + d.totalEpisodes + '"></div>' +
@@ -786,6 +877,24 @@
           '<button type="submit" class="btn btn-primary">' + (isEdit ? 'Save changes' : 'Add show') + '</button>' +
         '</div>' +
       '</form>' +
+    '</div>';
+  }
+
+  /* ---------------- ADD SHOWS TO FOLDER ---------------- */
+  function renderAddShowsPanel(){
+    var f = getFolder(state.addingShowsFolderId);
+    if(!f) return '<div class="screen-pad"><p class="screen-kicker">Folder not found.</p></div>';
+    var rows = state.shows.map(function(s){
+      var checked = (s.folderIds||[]).indexOf(f.id) !== -1;
+      return '<button type="button" class="checklist-row' + (checked?' checked':'') + '" data-action="toggle-in-folder-panel" data-show="' + s.id + '">' +
+        '<span class="checklist-cb">' + (checked?icon('check'):'') + '</span>' +
+        '<span class="checklist-poster" style="' + (s.posterImage ? '' : posterStyle(s)) + '">' + posterImgTag(s,'thumbnail') + '</span>' +
+        '<span class="checklist-title">' + s.title + '</span>' +
+      '</button>';
+    }).join('');
+    return '<div class="screen-pad">' +
+      '<div class="form-head"><h2>Add to "' + f.name + '"</h2><button type="button" data-action="close-addshows">Done</button></div>' +
+      (rows || '<p class="screen-kicker">No shows yet — add one from Browse first.</p>') +
     '</div>';
   }
 
@@ -899,7 +1008,7 @@
     var s = getShow(showId);
     if(!s) return;
     state.editingShowId = showId;
-    state.formDraft = { id:s.id, title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category: s.category || 'drama',
+    state.formDraft = { id:s.id, title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category: s.category || (state.categories[0]?state.categories[0].id:''), folderIds:(s.folderIds||[]).slice(),
       totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(),
       airTime:s.airTime, airTimeZone: s.airTimeZone || 'TH', airTimeOriginal: s.airTimeOriginal || s.airTime,
       firstAirDate:s.firstAirDate,
@@ -928,7 +1037,7 @@
     if(d.id){
       var s = getShow(d.id);
       if(s){
-        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.category = d.category || 'drama'; s.totalEpisodes = total;
+        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.category = d.category || ''; s.folderIds = d.folderIds.slice(); s.totalEpisodes = total;
         s.airDays = d.airDays.length ? d.airDays : [0]; s.airTime = d.airTime; s.airTimeZone = d.airTimeZone || 'TH'; s.airTimeOriginal = d.airTimeOriginal || d.airTime; s.firstAirDate = d.firstAirDate;
         s.channel = d.channel; s.platform = d.platform; s.posterIndex = d.posterIndex;
         s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
@@ -936,7 +1045,7 @@
         if(s.watched > s.totalEpisodes) s.watched = s.totalEpisodes;
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category: d.category || 'drama', totalEpisodes:total,
+      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category: d.category || '', folderIds: d.folderIds.slice(), totalEpisodes:total,
         airDays: d.airDays.length ? d.airDays : [0], airTime:d.airTime, airTimeZone: d.airTimeZone || 'TH', airTimeOriginal: d.airTimeOriginal || d.airTime, firstAirDate:d.firstAirDate,
         channel:d.channel, platform:d.platform, posterIndex:d.posterIndex,
         posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
@@ -976,8 +1085,10 @@
       var remoteUpdatedAt = (remote.data && remote.data.updatedAt) || 0;
       if(remoteShows.length && (!state.updatedAt || remoteUpdatedAt > state.updatedAt)){
         state.shows = remoteShows;
+        state.shows.forEach(function(s){ if(!s.folderIds) s.folderIds = []; });
         state.updatedAt = remoteUpdatedAt;
-        if(remote.data.genreOptionsByCategory || remote.data.genreOptions) state.genreOptionsByCategory = buildGenreOptionsByCategory(remote.data);
+        if(remote.data.categories || remote.data.genreOptionsByCategory || remote.data.genreOptions) state.categories = buildCategories(remote.data);
+        if(remote.data.folders) state.folders = remote.data.folders;
         if(remote.data.nationalityOptions && remote.data.nationalityOptions.length) state.nationalityOptions = remote.data.nationalityOptions;
       }
       state.ghSha = remote.sha;
@@ -1065,6 +1176,115 @@
             state.formDraft.genres = []; // drama and variety use different genre vocabularies
           }
           render();
+        })(); break;
+      case 'toggle-manage-categories':
+        state.managingCategories = !state.managingCategories; render(); break;
+      case 'add-category':
+        (function(){
+          var inp = document.getElementById('newCategoryInput');
+          var name = inp ? inp.value.trim() : '';
+          if(!name) return;
+          state.categories.push({ id: uid('cat'), name: name, genres: [] });
+          pendingFocusId = 'newCategoryInput';
+          touch(); render();
+        })(); break;
+      case 'delete-category':
+        (function(){
+          var cid = btn.getAttribute('data-cat');
+          if(state.categories.length <= 1) return;
+          state.categories = state.categories.filter(function(c){ return c.id !== cid; });
+          state.shows.forEach(function(s){ if(s.category === cid){ s.category=''; s.genres=[]; } });
+          if(state.formDraft && state.formDraft.category === cid){ state.formDraft.category=''; state.formDraft.genres=[]; }
+          touch(); render();
+        })(); break;
+      case 'remove-genre-from-cat':
+        (function(){
+          var cid = btn.getAttribute('data-cat'), g = btn.getAttribute('data-genre');
+          var c = getCategory(cid); if(!c) return;
+          c.genres = c.genres.filter(function(x){ return x !== g; });
+          touch(); render();
+        })(); break;
+      case 'toggle-show-folder':
+        (function(){
+          var fid = btn.getAttribute('data-folder');
+          var arr = state.formDraft.folderIds;
+          var i = arr.indexOf(fid);
+          if(i === -1) arr.push(fid); else arr.splice(i,1);
+          render();
+        })(); break;
+      case 'toggle-browse-edit':
+        state.browseEditMode = !state.browseEditMode; state.renamingFolderId = null; render(); break;
+      case 'add-folder':
+        (function(){
+          var inp = document.getElementById('newFolderInput');
+          var name = inp ? inp.value.trim() : '';
+          if(!name) return;
+          state.folders.push({ id: uid('f'), name: name });
+          pendingFocusId = 'newFolderInput';
+          touch(); render();
+        })(); break;
+      case 'add-folder-from-form':
+        (function(){
+          var inp = document.getElementById('newFolderFromForm');
+          var name = inp ? inp.value.trim() : '';
+          if(!name) return;
+          var f = { id: uid('f'), name: name };
+          state.folders.push(f);
+          state.formDraft.folderIds.push(f.id);
+          pendingFocusId = 'newFolderFromForm';
+          touch(); render();
+        })(); break;
+      case 'rename-folder':
+        state.renamingFolderId = btn.getAttribute('data-folder');
+        pendingFocusId = 'renameFolderInput_' + state.renamingFolderId;
+        render(); break;
+      case 'confirm-rename-folder':
+        (function(){
+          var fid = btn.getAttribute('data-folder');
+          var inp = document.getElementById('renameFolderInput_' + fid);
+          var f = getFolder(fid);
+          if(f && inp && inp.value.trim()) f.name = inp.value.trim();
+          state.renamingFolderId = null;
+          touch(); render();
+        })(); break;
+      case 'delete-folder':
+        (function(){
+          var fid = btn.getAttribute('data-folder');
+          state.folders = state.folders.filter(function(f){ return f.id !== fid; });
+          state.shows.forEach(function(s){ if(s.folderIds) s.folderIds = s.folderIds.filter(function(x){ return x !== fid; }); });
+          touch(); render();
+        })(); break;
+      case 'move-folder':
+        (function(){
+          var fid = btn.getAttribute('data-folder'), dir = parseInt(btn.getAttribute('data-dir'),10);
+          var idx = -1;
+          state.folders.forEach(function(f,i){ if(f.id===fid) idx=i; });
+          var swap = idx + dir;
+          if(idx === -1 || swap < 0 || swap >= state.folders.length) return;
+          var tmp = state.folders[idx]; state.folders[idx] = state.folders[swap]; state.folders[swap] = tmp;
+          touch(); render();
+        })(); break;
+      case 'remove-from-folder':
+        (function(){
+          var fid = btn.getAttribute('data-folder'), sid = btn.getAttribute('data-show');
+          var s = getShow(sid); if(!s || !s.folderIds) return;
+          s.folderIds = s.folderIds.filter(function(x){ return x !== fid; });
+          touch(); render();
+        })(); break;
+      case 'open-addshows':
+        state.addingShowsFolderId = btn.getAttribute('data-folder');
+        openOverlay('addshows'); render(); break;
+      case 'close-addshows':
+        state.overlay = null; state.addingShowsFolderId = null; render(); break;
+      case 'toggle-in-folder-panel':
+        (function(){
+          var sid = btn.getAttribute('data-show');
+          var s = getShow(sid); if(!s) return;
+          if(!s.folderIds) s.folderIds = [];
+          var fid = state.addingShowsFolderId;
+          var i = s.folderIds.indexOf(fid);
+          if(i === -1) s.folderIds.push(fid); else s.folderIds.splice(i,1);
+          touch(); render();
         })(); break;
       case 'toggle-manage-list':
         state.managingList = (state.managingList === btn.getAttribute('data-list')) ? null : btn.getAttribute('data-list');
@@ -1190,6 +1410,11 @@
   }
   document.addEventListener('input', function(e){
     var t = e.target;
+    if(t.matches('[data-action-input="rename-category"]')){
+      var cat = getCategory(t.getAttribute('data-cat'));
+      if(cat){ cat.name = t.value; persistLocal(); }
+      return;
+    }
     if((t.matches('[data-tz-input]') || t.matches('[data-origtime-input]')) && state.formDraft){
       var tzSel = document.getElementById('f_origtz');
       var timeInput = document.getElementById('f_origtime');
@@ -1333,6 +1558,54 @@
         pendingFocusId = e.target.id;
         render();
       }
+    }
+    if(e.key === 'Enter' && e.target.matches('[data-action-input="add-genre-to-cat"]')){
+      e.preventDefault();
+      var cid = e.target.getAttribute('data-cat');
+      var gval = e.target.value.trim();
+      if(gval){
+        var cat = getCategory(cid);
+        if(cat && cat.genres.indexOf(gval) === -1) cat.genres.push(gval);
+        pendingFocusId = e.target.id;
+        touch(); render();
+      }
+    }
+    if(e.key === 'Enter' && e.target.id === 'newCategoryInput'){
+      e.preventDefault();
+      var cname = e.target.value.trim();
+      if(cname){
+        state.categories.push({ id: uid('cat'), name: cname, genres: [] });
+        pendingFocusId = 'newCategoryInput';
+        touch(); render();
+      }
+    }
+    if(e.key === 'Enter' && e.target.id === 'newFolderInput'){
+      e.preventDefault();
+      var fname = e.target.value.trim();
+      if(fname){
+        state.folders.push({ id: uid('f'), name: fname });
+        pendingFocusId = 'newFolderInput';
+        touch(); render();
+      }
+    }
+    if(e.key === 'Enter' && e.target.id === 'newFolderFromForm'){
+      e.preventDefault();
+      var fname2 = e.target.value.trim();
+      if(fname2 && state.formDraft){
+        var newF = { id: uid('f'), name: fname2 };
+        state.folders.push(newF);
+        state.formDraft.folderIds.push(newF.id);
+        pendingFocusId = 'newFolderFromForm';
+        touch(); render();
+      }
+    }
+    if(e.key === 'Enter' && e.target.matches('[data-action-input="rename-folder"]')){
+      e.preventDefault();
+      var rfid = e.target.getAttribute('data-folder');
+      var rf = getFolder(rfid);
+      if(rf && e.target.value.trim()) rf.name = e.target.value.trim();
+      state.renamingFolderId = null;
+      touch(); render();
     }
   });
   document.addEventListener('submit', function(e){
