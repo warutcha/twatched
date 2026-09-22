@@ -31,6 +31,11 @@
     --danger: #A8402F;
     --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
     --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* 0px everywhere except when app.js measures the tab bar's actual rendered bottom edge
+       falling short of the real screen bottom in standalone (home-screen) mode — see
+       applyTabBarBottomFix. This only ever adds bottom padding to the bar itself, so even a
+       bad measurement can make it look padded, never push the bar's buttons off-screen. */
+    --tab-bar-extra-bottom: 0px;
   }
   @media (prefers-color-scheme: dark){
     #app:not([data-theme="light"]){
@@ -98,7 +103,10 @@
   .tab-bar{
     flex:0 0 auto;
     display:flex; border-top:1px solid var(--border); background:var(--surface);
-    padding:10px 10px calc(10px + env(safe-area-inset-bottom,0px));
+    /* Base safe-area padding, plus --tab-bar-extra-bottom (0px unless app.js's
+       applyTabBarBottomFix finds the bar still isn't reaching the true screen edge — see the
+       comment there for why this is a padding nudge and not a #app resize). */
+    padding:10px 10px calc(10px + env(safe-area-inset-bottom,0px) + var(--tab-bar-extra-bottom,0px));
   }
   .tab-btn{
     flex:1; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:4px;

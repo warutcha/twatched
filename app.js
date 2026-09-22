@@ -2,6 +2,52 @@
 (function(){
   "use strict";
 
+  /* ---------------- iOS "Add to Home Screen" tab-bar-not-flush fix ----------------
+     #app is pinned with position:fixed;inset:0 (see CSS), which correctly bounds it to the
+     real viewport — that part isn't in question. What's still unreliable on some devices is
+     whether the *safe-area* padding baked into .tab-bar's CSS (env(safe-area-inset-bottom))
+     ends up being the actual, correct distance once everything settles; on at least one real
+     device it wasn't quite enough, leaving a thin strip of bare background below the bar.
+     Rather than re-guess a number, this measures the ACTUAL, ALREADY-RENDERED gap directly —
+     screen.height minus where the bar's own bottom edge really ended up — and adds exactly
+     that much more bottom padding to the bar itself. Two things make this safe even if a
+     measurement is ever wrong: it only ever pads (it can only make the bar's own background
+     taller, never move or hide its buttons, so it can't reproduce the "bar disappeared"
+     failure), and it's clamped to a small, plausible range and skipped outright while a text
+     field is focused (where the keyboard legitimately and temporarily shrinks the visible
+     area, which is a different situation, not this bug). */
+  var tabBarFixTimer = null;
+  function applyTabBarBottomFix(){
+    try{
+      var standalone = (window.navigator.standalone === true) ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      if(!standalone){
+        document.documentElement.style.setProperty('--tab-bar-extra-bottom', '0px');
+        return;
+      }
+      var active = document.activeElement;
+      if(active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)){
+        return; // keyboard likely open — leave whatever value is already set alone
+      }
+      var tabBar = document.querySelector('.tab-bar');
+      var screenH = window.screen && window.screen.height;
+      if(!tabBar || typeof screenH !== 'number'){ return; }
+      var rect = tabBar.getBoundingClientRect();
+      var gap = screenH - rect.bottom;
+      var extra = (gap > 2 && gap <= 100) ? Math.round(gap) : 0;
+      document.documentElement.style.setProperty('--tab-bar-extra-bottom', extra + 'px');
+    }catch(err){ /* leave --tab-bar-extra-bottom at its 0px default */ }
+  }
+  function scheduleTabBarBottomFixChecks(){
+    applyTabBarBottomFix();
+    // Re-measure over the first couple of seconds too, since iOS can settle its own numbers
+    // a moment after launch/resume rather than immediately.
+    clearTimeout(tabBarFixTimer);
+    [50, 250, 600, 1200, 2000].forEach(function(delay){
+      setTimeout(applyTabBarBottomFix, delay);
+    });
+  }
+
   /* ---------------- icons ---------------- */
   var ICON_PATHS = {
     home: '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9"/>',
@@ -52,7 +98,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.6.3';
+  var APP_VERSION = 'v1.6.4';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -457,6 +503,7 @@
     if(diagEl){
       requestAnimationFrame(function(){
         try{
+          applyTabBarBottomFix(); // re-check before measuring, so the diag reflects the corrected state
           var tb = document.querySelector('.tab-bar');
           var tbRect = tb ? tb.getBoundingClientRect() : null;
           var appRect = appEl ? appEl.getBoundingClientRect() : null;
@@ -464,6 +511,7 @@
           var vvH = window.visualViewport ? Math.round(window.visualViewport.height) : null;
           var screenH = window.screen ? window.screen.height : null;
           var tabBarBottom = tbRect ? Math.round(tbRect.bottom) : null;
+          var extraBottom = getComputedStyle(document.documentElement).getPropertyValue('--tab-bar-extra-bottom').trim();
           var parts = [
             'standalone=' + standalone,
             'innerH=' + window.innerHeight,
@@ -471,8 +519,9 @@
             'screenH=' + (screenH===null?'n/a':screenH),
             'appHeight=' + (appRect ? Math.round(appRect.height) : 'n/a'),
             'tabBarBottom=' + (tabBarBottom===null?'n/a':tabBarBottom),
-            // Should read 0px (or a couple px of rounding) now that #app is pinned with
-            // position:fixed/inset:0 instead of being sized from a measured height.
+            'tabBarExtraBottom=' + (extraBottom || '0px'),
+            // Should read 0px (or a couple px of rounding) once the extra padding above has
+            // closed the gap.
             'gapLeft=' + ((screenH!==null && tabBarBottom!==null) ? (screenH - tabBarBottom) + 'px' : 'n/a')
           ];
           diagEl.textContent = 'Diag — ' + parts.join(' · ');
@@ -1316,11 +1365,16 @@
     }
   });
   window.addEventListener('resize', function(){
+    applyTabBarBottomFix();
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(render, 150);
   });
+  window.addEventListener('orientationchange', scheduleTabBarBottomFixChecks);
+  window.addEventListener('pageshow', scheduleTabBarBottomFixChecks);
+  window.addEventListener('focus', applyTabBarBottomFix);
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible'){
+      scheduleTabBarBottomFixChecks();
       checkForNewEpisodes();
       if(state.gh) syncNow().then(render);
     }
@@ -1341,6 +1395,7 @@
   }, { passive:false });
 
   /* ---------------- init ---------------- */
+  scheduleTabBarBottomFixChecks();
   loadState();
   render();
   checkForNewEpisodes();
