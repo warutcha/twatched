@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.9.0';
+  var APP_VERSION = 'v1.10.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -106,6 +106,17 @@
   function fmtDate(d){ return d.toLocaleDateString('en-US', DFMT_DATE); }
   function fmtTime(d){ return d.toLocaleTimeString('en-US', DFMT_TIME); }
   function fmtDateTime(d){ return fmtDate(d) + ' · ' + fmtTime(d); }
+  function daysUntil(targetDate, nowMs){
+    var now = new Date(nowMs);
+    var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    var startOfTarget = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
+    return Math.round((startOfTarget - startOfToday) / 86400000);
+  }
+  function ddayLabel(days){
+    if(days === 0) return { text:'D-DAY', cls:'dday--today' };
+    if(days > 0) return { text:'D-' + days, cls:'dday--soon' };
+    return { text:'D+' + Math.abs(days), cls:'dday--over' };
+  }
   function fmtRelative(ms){
     if(!ms) return 'never';
     var diff = Date.now() - ms;
@@ -143,7 +154,7 @@
   function cropImgTag(photoUrl, crop, cls){
     if(!photoUrl) return '';
     var c = crop || {x:50,y:50,zoom:100};
-    return '<img class="poster-img ' + (cls||'') + '" src="' + photoUrl + '" alt="" draggable="false" style="object-position:' + c.x + '% ' + c.y + '%; transform:scale(' + (c.zoom/100) + ');">';
+    return '<img class="poster-img ' + (cls||'') + '" src="' + photoUrl + '" alt="" draggable="false" style="object-position:' + c.x + '% ' + c.y + '%; transform-origin:' + c.x + '% ' + c.y + '%; transform:scale(' + (c.zoom/100) + ');">';
   }
   function posterImgTag(showLike, slot, cls){
     if(!showLike || !showLike.posterImage) return '';
@@ -577,13 +588,14 @@
       if(comingUp.length){
         out += '<div class="settings-card">';
         comingUp.forEach(function(u){
+          var dd = ddayLabel(daysUntil(u.info.airDate, now));
           out += '<div class="upcoming-row" data-action="open-detail" data-show="' + u.show.id + '">' +
             '<div class="upcoming-thumb" style="' + (u.show.posterImage ? '' : posterStyle(u.show)) + '">' +
               posterImgTag(u.show,'thumbnail') +
               (u.show.posterImage ? '' : '<span>' + initialOf(u.show) + '</span>') +
             '</div>' +
             '<div class="upcoming-info"><p class="t1">' + u.show.title + '</p><p class="t2">Episode ' + u.info.number + '</p></div>' +
-            '<div class="upcoming-when">' + fmtDate(u.info.airDate) + '</div>' +
+            '<div class="upcoming-right"><p class="upcoming-when">' + fmtDate(u.info.airDate) + '</p><span class="dday ' + dd.cls + '">' + dd.text + '</span></div>' +
           '</div>';
         });
         out += '</div>';
@@ -616,9 +628,9 @@
       '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
         posterImgTag(show,'grid') +
         '<span class="badge">' + statusBadge(show) + '</span>' +
-        '<span class="title-on-poster">' + show.title + '</span>' +
         rmBtn +
       '</div>' +
+      '<p class="tile-cap">' + show.title + '</p>' +
       '<p class="tile-sub">' + (show.platform||'—') + ' · ' + show.watched + '/' + show.totalEpisodes + '</p>' +
       '<div class="tile-progress"><i style="width:' + pct + '%"></i></div>' +
       reorderRow +
@@ -1559,11 +1571,16 @@
     var nw = (imgEl && imgEl.naturalWidth) || rect.width || 1;
     var nh = (imgEl && imgEl.naturalHeight) || rect.height || 1;
     var coverScale = Math.max((rect.width||1) / nw, (rect.height||1) / nh);
-    var overflowX = Math.max(0, nw * coverScale - (rect.width||0));
-    var overflowY = Math.max(0, nh * coverScale - (rect.height||0));
+    var zoomFactor = (crop.zoom || 100) / 100;
+    // Overflow is computed at the CURRENT zoom (not just the bare "cover" fit), since
+    // transform:scale + a matching transform-origin lets zooming in unlock real pan
+    // room even on the axis where object-fit:cover alone has none (e.g. a portrait
+    // photo in a square avatar box has zero natural horizontal slack at zoom 100).
+    var overflowX = Math.max(0, nw * coverScale * zoomFactor - (rect.width||0));
+    var overflowY = Math.max(0, nh * coverScale * zoomFactor - (rect.height||0));
     dragState = {
       box:box, startClientX:e.clientX, startClientY:e.clientY,
-      startX:crop.x, startY:crop.y, zoom: crop.zoom || 100,
+      startX:crop.x, startY:crop.y,
       overflowX: overflowX, overflowY: overflowY, pointerId:e.pointerId
     };
     try{ box.setPointerCapture(e.pointerId); }catch(err){}
@@ -1573,19 +1590,19 @@
     if(!dragState || !state.formDraft) return;
     var crop = resolveCropRef(dragState.box);
     if(!crop) return;
-    var zoomFactor = (dragState.zoom || 100) / 100;
-    var baseDx = (e.clientX - dragState.startClientX) / zoomFactor;
-    var baseDy = (e.clientY - dragState.startClientY) / zoomFactor;
+    var dx = e.clientX - dragState.startClientX;
+    var dy = e.clientY - dragState.startClientY;
     if(dragState.overflowX > 0){
-      crop.x = clamp(dragState.startX - (100 * baseDx / dragState.overflowX), 0, 100);
+      crop.x = clamp(dragState.startX - (100 * dx / dragState.overflowX), 0, 100);
     }
     if(dragState.overflowY > 0){
-      crop.y = clamp(dragState.startY - (100 * baseDy / dragState.overflowY), 0, 100);
+      crop.y = clamp(dragState.startY - (100 * dy / dragState.overflowY), 0, 100);
     }
     var img = dragState.box.querySelector('.poster-img');
     if(img){
       img.style.objectPosition = crop.x + '% ' + crop.y + '%';
-      img.style.transform = 'scale(' + zoomFactor + ')';
+      img.style.transformOrigin = crop.x + '% ' + crop.y + '%';
+      img.style.transform = 'scale(' + ((crop.zoom||100)/100) + ')';
     }
   });
   function endDrag(){ dragState = null; }
