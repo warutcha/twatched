@@ -53,7 +53,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.8.0';
+  var APP_VERSION = 'v1.8.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -664,7 +664,11 @@
     for(var i=1;i<=show.totalEpisodes;i++){
       var d = computeEpisodeDate(show, i);
       if(i <= show.watched){
-        rows += '<li class="ep-row ep-row--watched"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+        if(i === show.watched){
+          rows += '<li class="ep-row ep-row--watched"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+        } else {
+          rows += '<li class="ep-row ep-row--watched"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+        }
       } else if(i === show.watched+1 && info.aired){
         rows += '<li class="ep-row ep-row--ready"><button class="ep-row__check" data-action="check-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDateTime(d) + '</span></li>';
       } else if(i === show.watched+1){
@@ -1116,6 +1120,11 @@
         render(); break;
       case 'check-episode':
         checkEpisode(btn.getAttribute('data-show')); break;
+      case 'uncheck-episode':
+        (function(){
+          var s = getShow(btn.getAttribute('data-show'));
+          if(s && s.watched > 0){ s.watched -= 1; touch(); render(); }
+        })(); break;
       case 'open-detail':
         state.detailShowId = btn.getAttribute('data-show');
         state.confirmDeleteId = null;
