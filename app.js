@@ -2,6 +2,42 @@
 (function(){
   "use strict";
 
+  /* ---------------- iOS "Add to Home Screen" bottom-gap fix ----------------
+     On some devices/iOS versions, a standalone (home-screen) PWA's WKWebView actually
+     renders at the full physical screen height, but window.innerHeight / 100vh /
+     -webkit-fill-available all under-report it by a fixed number of pixels — so anything
+     sized with those (like #app, and the tab bar that ends where #app ends) stops short,
+     leaving a strip of bare <body> background between the tab bar and the real bottom edge.
+     This measures that exact gap (screen.height minus innerHeight) and feeds it back in as
+     --ios-bottom-shim, which #app's CSS adds on top of its normal height. It only ever adds
+     what was actually measured, only in standalone mode, and only within a sane range, so it
+     can't do anything in a normal Safari tab or on a device that isn't affected. */
+  var iosShimTimer = null;
+  function applyIOSBottomShim(){
+    try{
+      var standalone = (window.navigator.standalone === true) ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      var shim = 0;
+      if(standalone && window.screen && typeof window.screen.height === 'number'){
+        var raw = window.screen.height - window.innerHeight;
+        // Ignore noise (rounding, a few px of real safe-area) and anything implausibly large
+        // (keyboard open, split view, a measurement mid-transition).
+        if(raw > 4 && raw <= 150) shim = Math.round(raw);
+      }
+      document.documentElement.style.setProperty('--ios-bottom-shim', shim + 'px');
+    }catch(err){ /* leave --ios-bottom-shim at its 0px default */ }
+  }
+  function scheduleIOSBottomShimChecks(){
+    applyIOSBottomShim();
+    // iOS sometimes reports a still-settling innerHeight/screen.height right at launch or
+    // right after the home-screen icon is tapped, and corrects itself a moment later —
+    // re-measure a few times over the first couple of seconds to catch that.
+    clearTimeout(iosShimTimer);
+    [50, 250, 600, 1200, 2000].forEach(function(delay){
+      setTimeout(applyIOSBottomShim, delay);
+    });
+  }
+
   /* ---------------- icons ---------------- */
   var ICON_PATHS = {
     home: '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9"/>',
@@ -52,7 +88,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.6.1';
+  var APP_VERSION = 'v1.6.2';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -462,13 +498,18 @@
           var appRect = appEl ? appEl.getBoundingClientRect() : null;
           var standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
           var vvH = window.visualViewport ? Math.round(window.visualViewport.height) : null;
+          var shimVal = getComputedStyle(document.documentElement).getPropertyValue('--ios-bottom-shim').trim();
+          var screenH = window.screen ? window.screen.height : null;
+          var tabBarBottom = tbRect ? Math.round(tbRect.bottom) : null;
           var parts = [
             'standalone=' + standalone,
             'innerH=' + window.innerHeight,
             'vvH=' + (vvH===null?'n/a':vvH),
-            'screenH=' + (window.screen ? window.screen.height : 'n/a'),
+            'screenH=' + (screenH===null?'n/a':screenH),
             'appHeight=' + (appRect ? Math.round(appRect.height) : 'n/a'),
-            'tabBarBottom=' + (tbRect ? Math.round(tbRect.bottom) : 'n/a')
+            'shim=' + (shimVal || '0px'),
+            'tabBarBottom=' + (tabBarBottom===null?'n/a':tabBarBottom),
+            'gapLeft=' + ((screenH!==null && tabBarBottom!==null) ? (screenH - tabBarBottom) + 'px' : 'n/a')
           ];
           diagEl.textContent = 'Diag — ' + parts.join(' · ');
         }catch(err){ diagEl.textContent = 'Diag — error: ' + err; }
@@ -1311,11 +1352,16 @@
     }
   });
   window.addEventListener('resize', function(){
+    applyIOSBottomShim();
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(render, 150);
   });
+  window.addEventListener('orientationchange', scheduleIOSBottomShimChecks);
+  window.addEventListener('pageshow', scheduleIOSBottomShimChecks);
+  window.addEventListener('focus', applyIOSBottomShim);
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible'){
+      scheduleIOSBottomShimChecks();
       checkForNewEpisodes();
       if(state.gh) syncNow().then(render);
     }
@@ -1326,15 +1372,17 @@
   document.addEventListener('gesturechange', function(e){ e.preventDefault(); });
 
   /* ---------------- lock the outer page so only the app's own screens can scroll ----------------
-     Belt-and-suspenders alongside the position:fixed html/body in the CSS: this stops any
+     Belt-and-suspenders alongside html/body's overflow:hidden in the CSS: this stops any
      drag that starts on non-scrollable chrome (tab bar, background) from ever reaching the
-     page and triggering iOS's rubber-band bounce, which is what exposes the gap underneath. */
+     page and triggering iOS's rubber-band bounce, which would briefly expose bare background
+     past the edge of #app. */
   document.addEventListener('touchmove', function(e){
     if(e.touches && e.touches.length > 1){ e.preventDefault(); return; }
     if(!e.target.closest('.app-screen, .crop-box')) e.preventDefault();
   }, { passive:false });
 
   /* ---------------- init ---------------- */
+  scheduleIOSBottomShimChecks();
   loadState();
   render();
   checkForNewEpisodes();

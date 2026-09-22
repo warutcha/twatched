@@ -31,6 +31,11 @@
     --danger: #A8402F;
     --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
     --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    /* Measured at runtime (see applyIOSBottomShim in app.js). Stays 0px everywhere except the
+       specific iOS "Add to Home Screen" case where the WKWebView renders taller than the
+       height:100vh/-webkit-fill-available on #app reports, leaving a gap of this many px of
+       bare <body> background between the tab bar and the real bottom edge of the screen. */
+    --ios-bottom-shim: 0px;
   }
   @media (prefers-color-scheme: dark){
     #app:not([data-theme="light"]){
@@ -64,14 +69,19 @@
   ::selection{ background: var(--gold); color:#1B2036; }
 
   /* ---------- app shell ----------
-     height:-webkit-fill-available (not vh/dvh, and not position:fixed) is the documented fix for
-     a specific, long-standing WebKit bug where standalone (Home Screen) PWAs under-report the
-     usable viewport height versus the real screen — vh/dvh/innerHeight/fixed positioning all
-     inherit that same wrong number, which is why every previous attempt landed on the same
-     wrong edge. This sizes against the actual rendered available space instead. */
+     height:-webkit-fill-available is a reasonable base (better than raw 100vh) for most cases.
+     But on iOS, an "Add to Home Screen" app can end up with a WKWebView that's physically taller
+     than every one of 100vh / -webkit-fill-available / dvh / window.innerHeight agrees on — they
+     all under-report by the same fixed number of px, which is why switching between them alone
+     never closed the gap. --ios-bottom-shim (measured in app.js, 0px unless it detects this
+     exact case) makes up that difference on top of whichever base height applied. */
   #app{
     position:relative; background:var(--bg); color:var(--text);
     height:100vh; height:-webkit-fill-available;
+    /* Final say: adds the measured shim (0px unless applyIOSBottomShim found a real gap) on
+       top of the ordinary viewport height, so #app itself reaches all the way to the true
+       bottom edge instead of leaving the tab bar floating above a strip of bare background. */
+    height: calc(100vh + var(--ios-bottom-shim));
     display:flex; flex-direction:column; overflow:hidden;
   }
 
