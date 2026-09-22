@@ -160,7 +160,7 @@
   .empty-block strong{ display:block; font-family:var(--font-display); font-size:19px; font-weight:600; color:var(--text); margin-bottom:2px;}
   .empty-block .btn{ margin-top:14px; }
 
-  .upcoming-row{ display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px dashed var(--border); }
+  .upcoming-row{ display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px dashed var(--border); cursor:pointer; }
   .upcoming-row:last-child{ border-bottom:none; }
   .upcoming-thumb{ width:34px; height:34px; border-radius:9px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; color:#fff; position:relative; overflow:hidden; }
   .upcoming-thumb span{ font-family:var(--font-display); font-style:italic; font-weight:600; font-size:14px; }
@@ -205,6 +205,9 @@
   .tile-progress i{ display:block; height:100%; background:var(--teal); }
   .tile-rm{ position:absolute; top:6px; right:6px; width:24px; height:24px; border-radius:50%; background:rgba(10,10,16,0.62); color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
   .tile-rm .icon{ width:13px; height:13px; }
+  .tile-reorder{ display:flex; gap:6px; margin-top:6px; }
+  .tile-reorder .icon-btn-sm{ flex:1 1 auto; width:auto; height:26px; border-radius:8px; }
+  .tile-reorder .icon-btn-sm .icon{ width:14px; height:14px; }
 
   /* ---------- shelves ---------- */
   .row-between{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
@@ -406,6 +409,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=172"></script>
+<script src="app.js?v=173"></script>
 </body>
 </html>

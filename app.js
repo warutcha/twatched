@@ -18,7 +18,9 @@
     ticket: '<path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a1.6 1.6 0 0 0 0 3v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a1.6 1.6 0 0 0 0-3z"/>',
     cloud: '<path d="M7 18a4 4 0 0 1-.6-7.96A5 5 0 0 1 16 9.2 3.8 3.8 0 0 1 15.4 18H7Z"/>',
     up: '<path d="M6 15l6-6 6 6"/>',
-    down: '<path d="M6 9l6 6 6-6"/>'
+    down: '<path d="M6 9l6 6 6-6"/>',
+    left: '<path d="M15 6l-6 6 6 6"/>',
+    right: '<path d="M9 6l6 6-6 6"/>'
   };
   function icon(name, cls){
     return '<svg class="icon ' + (cls||'') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICON_PATHS[name]||'') + '</svg>';
@@ -53,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.8.1';
+  var APP_VERSION = 'v1.9.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -188,6 +190,7 @@
     managingCategories: false,
     browseEditMode: false,
     renamingFolderId: null,
+    homeCategoryFilter: null,
     addingShowsFolderId: null,
     castCropTargetIndex: null
   };
@@ -219,6 +222,15 @@
   }
   function getCategory(id){ return state.categories.filter(function(c){return c.id===id;})[0] || null; }
   function getFolder(id){ return state.folders.filter(function(f){return f.id===id;})[0] || null; }
+  function orderedFolderItems(folder, items){
+    var order = (folder && folder.order) || [];
+    var byId = {};
+    items.forEach(function(s){ byId[s.id] = s; });
+    var sorted = [];
+    order.forEach(function(id){ if(byId[id]){ sorted.push(byId[id]); delete byId[id]; } });
+    items.forEach(function(s){ if(byId[s.id]){ sorted.push(s); } });
+    return sorted;
+  }
 
   function loadState(){
     try{
@@ -513,16 +525,19 @@
   function renderHome(){
     var now = Date.now();
     var active = [];
-    var upcoming = [];
+    var comingUp = [];
     state.shows.forEach(function(s){
       var info = getNextEpisodeInfo(s, now);
-      if(!info.completed && info.aired){ active.push({show:s, info:info}); }
-      var nx = nextUnairedEpisode(s, now);
-      if(nx){ upcoming.push({show:s, ep:nx}); }
+      if(info.completed) return;
+      if(info.aired) active.push({show:s, info:info});
+      comingUp.push({show:s, info:info});
     });
     active.sort(function(a,b){ return a.info.airDate - b.info.airDate; });
-    upcoming.sort(function(a,b){ return a.ep.airDate - b.ep.airDate; });
-    upcoming = upcoming.slice(0,3);
+    comingUp.sort(function(a,b){ return a.info.airDate - b.info.airDate; });
+    var comingUpAll = comingUp;
+    if(state.homeCategoryFilter){
+      comingUp = comingUp.filter(function(c){ return c.show.category === state.homeCategoryFilter; });
+    }
 
     var out = '<div class="screen-pad">';
     out += '<h1 class="screen-title">Up next</h1>';
@@ -551,19 +566,30 @@
       });
     }
 
-    if(upcoming.length){
-      out += '<p class="section-label">Coming up</p><div class="settings-card">';
-      upcoming.forEach(function(u){
-        out += '<div class="upcoming-row">' +
-          '<div class="upcoming-thumb" style="' + (u.show.posterImage ? '' : posterStyle(u.show)) + '">' +
-            posterImgTag(u.show,'thumbnail') +
-            (u.show.posterImage ? '' : '<span>' + initialOf(u.show) + '</span>') +
-          '</div>' +
-          '<div class="upcoming-info"><p class="t1">' + u.show.title + '</p><p class="t2">Episode ' + u.ep.number + '</p></div>' +
-          '<div class="upcoming-when">' + fmtDate(u.ep.airDate) + '</div>' +
-        '</div>';
-      });
-      out += '</div>';
+    if(comingUpAll.length){
+      out += '<p class="section-label">Coming up</p>';
+      out += '<div class="day-chips" style="margin-bottom:10px;">' +
+        '<button type="button" class="opt-chip' + (!state.homeCategoryFilter?' active':'') + '" data-action="set-homecat-filter" data-value="">All</button>' +
+        state.categories.map(function(c){
+          return '<button type="button" class="opt-chip' + (state.homeCategoryFilter===c.id?' active':'') + '" data-action="set-homecat-filter" data-value="' + c.id + '">' + c.name + '</button>';
+        }).join('') +
+      '</div>';
+      if(comingUp.length){
+        out += '<div class="settings-card">';
+        comingUp.forEach(function(u){
+          out += '<div class="upcoming-row" data-action="open-detail" data-show="' + u.show.id + '">' +
+            '<div class="upcoming-thumb" style="' + (u.show.posterImage ? '' : posterStyle(u.show)) + '">' +
+              posterImgTag(u.show,'thumbnail') +
+              (u.show.posterImage ? '' : '<span>' + initialOf(u.show) + '</span>') +
+            '</div>' +
+            '<div class="upcoming-info"><p class="t1">' + u.show.title + '</p><p class="t2">Episode ' + u.info.number + '</p></div>' +
+            '<div class="upcoming-when">' + fmtDate(u.info.airDate) + '</div>' +
+          '</div>';
+        });
+        out += '</div>';
+      } else {
+        out += '<p class="screen-kicker">No shows in this category.</p>';
+      }
     }
     out += '</div>';
     return out;
@@ -576,9 +602,16 @@
     if(info.aired) return 'Ep ' + info.number + ' up next';
     return 'Caught up';
   }
-  function tileMarkup(show, removeFolderId){
+  function tileMarkup(show, opts){
+    opts = opts || {};
     var pct = Math.round((show.watched/show.totalEpisodes)*100);
-    var rmBtn = removeFolderId ? '<button class="tile-rm" data-action="remove-from-folder" data-folder="' + removeFolderId + '" data-show="' + show.id + '" aria-label="Remove from this folder">' + icon('close') + '</button>' : '';
+    var rmBtn = opts.removeFolderId ? '<button class="tile-rm" data-action="remove-from-folder" data-folder="' + opts.removeFolderId + '" data-show="' + show.id + '" aria-label="Remove from this folder">' + icon('close') + '</button>' : '';
+    var reorderRow = opts.reorderFolderId ? (
+      '<div class="tile-reorder">' +
+        '<button class="icon-btn-sm" data-action="move-show-in-folder" data-folder="' + opts.reorderFolderId + '" data-show="' + show.id + '" data-dir="-1"' + (opts.isFirst?' disabled style="opacity:.35;"':'') + ' aria-label="Move earlier">' + icon('left') + '</button>' +
+        '<button class="icon-btn-sm" data-action="move-show-in-folder" data-folder="' + opts.reorderFolderId + '" data-show="' + show.id + '" data-dir="1"' + (opts.isLast?' disabled style="opacity:.35;"':'') + ' aria-label="Move later">' + icon('right') + '</button>' +
+      '</div>'
+    ) : '';
     return '<div class="tile" data-action="open-detail" data-show="' + show.id + '">' +
       '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
         posterImgTag(show,'grid') +
@@ -588,6 +621,7 @@
       '</div>' +
       '<p class="tile-sub">' + (show.platform||'—') + ' · ' + show.watched + '/' + show.totalEpisodes + '</p>' +
       '<div class="tile-progress"><i style="width:' + pct + '%"></i></div>' +
+      reorderRow +
     '</div>';
   }
   function renderBrowse(){
@@ -614,7 +648,7 @@
       out2 += '<div class="empty-block"><span>' + icon('ticket') + '</span><strong>Nothing added yet</strong><p>Tap the + button to add your first show.</p></div>';
     } else {
       state.folders.forEach(function(f, fi){
-        var items = state.shows.filter(function(s){ return (s.folderIds||[]).indexOf(f.id) !== -1; });
+        var items = orderedFolderItems(f, state.shows.filter(function(s){ return (s.folderIds||[]).indexOf(f.id) !== -1; }));
         out2 += '<div class="shelf">';
         out2 += '<div class="shelf-head">';
         if(state.renamingFolderId === f.id){
@@ -635,7 +669,9 @@
         if(items.length === 0){
           out2 += '<div class="shelf-empty">No shows here yet.</div>';
         } else {
-          out2 += '<div class="shelf-row">' + items.map(function(s){ return tileMarkup(s, state.browseEditMode ? f.id : null); }).join('') + '</div>';
+          out2 += '<div class="shelf-row">' + items.map(function(s, si){
+            return tileMarkup(s, state.browseEditMode ? { removeFolderId:f.id, reorderFolderId:f.id, isFirst: si===0, isLast: si===items.length-1 } : null);
+          }).join('') + '</div>';
         }
         if(state.browseEditMode){
           out2 += '<button class="shelf-addshows-btn" data-action="open-addshows" data-folder="' + f.id + '">' + icon('plus') + ' Add shows</button>';
@@ -1221,6 +1257,9 @@
           if(i === -1) arr.push(fid); else arr.splice(i,1);
           render();
         })(); break;
+      case 'set-homecat-filter':
+        state.homeCategoryFilter = btn.getAttribute('data-value') || null;
+        render(); break;
       case 'toggle-browse-edit':
         state.browseEditMode = !state.browseEditMode; state.renamingFolderId = null; render(); break;
       case 'add-folder':
@@ -1278,6 +1317,21 @@
           var fid = btn.getAttribute('data-folder'), sid = btn.getAttribute('data-show');
           var s = getShow(sid); if(!s || !s.folderIds) return;
           s.folderIds = s.folderIds.filter(function(x){ return x !== fid; });
+          var f0 = getFolder(fid);
+          if(f0 && f0.order) f0.order = f0.order.filter(function(x){ return x !== sid; });
+          touch(); render();
+        })(); break;
+      case 'move-show-in-folder':
+        (function(){
+          var fid = btn.getAttribute('data-folder'), sid = btn.getAttribute('data-show'), dir = parseInt(btn.getAttribute('data-dir'),10);
+          var f = getFolder(fid); if(!f) return;
+          var items = orderedFolderItems(f, state.shows.filter(function(s){ return (s.folderIds||[]).indexOf(fid) !== -1; }));
+          var idx = -1;
+          items.forEach(function(s,i){ if(s.id===sid) idx=i; });
+          var swap = idx + dir;
+          if(idx === -1 || swap < 0 || swap >= items.length) return;
+          var tmp = items[idx]; items[idx] = items[swap]; items[swap] = tmp;
+          f.order = items.map(function(s){ return s.id; });
           touch(); render();
         })(); break;
       case 'open-addshows':
@@ -1292,7 +1346,11 @@
           if(!s.folderIds) s.folderIds = [];
           var fid = state.addingShowsFolderId;
           var i = s.folderIds.indexOf(fid);
-          if(i === -1) s.folderIds.push(fid); else s.folderIds.splice(i,1);
+          if(i === -1){ s.folderIds.push(fid); } else {
+            s.folderIds.splice(i,1);
+            var f1 = getFolder(fid);
+            if(f1 && f1.order) f1.order = f1.order.filter(function(x){ return x !== sid; });
+          }
           touch(); render();
         })(); break;
       case 'toggle-manage-list':
