@@ -2,52 +2,6 @@
 (function(){
   "use strict";
 
-  /* ---------------- iOS "Add to Home Screen" tab-bar-not-flush fix ----------------
-     #app is pinned with position:fixed;inset:0 (see CSS), which correctly bounds it to the
-     real viewport — that part isn't in question. What's still unreliable on some devices is
-     whether the *safe-area* padding baked into .tab-bar's CSS (env(safe-area-inset-bottom))
-     ends up being the actual, correct distance once everything settles; on at least one real
-     device it wasn't quite enough, leaving a thin strip of bare background below the bar.
-     Rather than re-guess a number, this measures the ACTUAL, ALREADY-RENDERED gap directly —
-     screen.height minus where the bar's own bottom edge really ended up — and adds exactly
-     that much more bottom padding to the bar itself. Two things make this safe even if a
-     measurement is ever wrong: it only ever pads (it can only make the bar's own background
-     taller, never move or hide its buttons, so it can't reproduce the "bar disappeared"
-     failure), and it's clamped to a small, plausible range and skipped outright while a text
-     field is focused (where the keyboard legitimately and temporarily shrinks the visible
-     area, which is a different situation, not this bug). */
-  var tabBarFixTimer = null;
-  function applyTabBarBottomFix(){
-    try{
-      var standalone = (window.navigator.standalone === true) ||
-        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-      if(!standalone){
-        document.documentElement.style.setProperty('--tab-bar-extra-bottom', '0px');
-        return;
-      }
-      var active = document.activeElement;
-      if(active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)){
-        return; // keyboard likely open — leave whatever value is already set alone
-      }
-      var tabBar = document.querySelector('.tab-bar');
-      var screenH = window.screen && window.screen.height;
-      if(!tabBar || typeof screenH !== 'number'){ return; }
-      var rect = tabBar.getBoundingClientRect();
-      var gap = screenH - rect.bottom;
-      var extra = (gap > 2 && gap <= 100) ? Math.round(gap) : 0;
-      document.documentElement.style.setProperty('--tab-bar-extra-bottom', extra + 'px');
-    }catch(err){ /* leave --tab-bar-extra-bottom at its 0px default */ }
-  }
-  function scheduleTabBarBottomFixChecks(){
-    applyTabBarBottomFix();
-    // Re-measure over the first couple of seconds too, since iOS can settle its own numbers
-    // a moment after launch/resume rather than immediately.
-    clearTimeout(tabBarFixTimer);
-    [50, 250, 600, 1200, 2000].forEach(function(delay){
-      setTimeout(applyTabBarBottomFix, delay);
-    });
-  }
-
   /* ---------------- icons ---------------- */
   var ICON_PATHS = {
     home: '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9"/>',
@@ -98,7 +52,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.6.4';
+  var APP_VERSION = 'v1.6.7';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -503,7 +457,6 @@
     if(diagEl){
       requestAnimationFrame(function(){
         try{
-          applyTabBarBottomFix(); // re-check before measuring, so the diag reflects the corrected state
           var tb = document.querySelector('.tab-bar');
           var tbRect = tb ? tb.getBoundingClientRect() : null;
           var appRect = appEl ? appEl.getBoundingClientRect() : null;
@@ -511,7 +464,6 @@
           var vvH = window.visualViewport ? Math.round(window.visualViewport.height) : null;
           var screenH = window.screen ? window.screen.height : null;
           var tabBarBottom = tbRect ? Math.round(tbRect.bottom) : null;
-          var extraBottom = getComputedStyle(document.documentElement).getPropertyValue('--tab-bar-extra-bottom').trim();
           var parts = [
             'standalone=' + standalone,
             'innerH=' + window.innerHeight,
@@ -519,12 +471,13 @@
             'screenH=' + (screenH===null?'n/a':screenH),
             'appHeight=' + (appRect ? Math.round(appRect.height) : 'n/a'),
             'tabBarBottom=' + (tabBarBottom===null?'n/a':tabBarBottom),
-            'tabBarExtraBottom=' + (extraBottom || '0px'),
-            // Should read 0px (or a couple px of rounding) once the extra padding above has
-            // closed the gap.
-            'gapLeft=' + ((screenH!==null && tabBarBottom!==null) ? (screenH - tabBarBottom) + 'px' : 'n/a')
+            // The raw, unpadded gap between the bar's own bottom edge and the true screen
+            // bottom, before the CSS bleed (.tab-bar::after) covers it. Not expected to be
+            // 0 — the bleed is what handles this now, not this number — but seeing it is
+            // what actually lets a real fix get designed instead of guessed at.
+            'rawGap=' + ((screenH!==null && tabBarBottom!==null) ? (screenH - tabBarBottom) + 'px' : 'n/a')
           ];
-          diagEl.textContent = 'Diag — ' + parts.join(' · ');
+          diagEl.textContent = 'Diag — ' + parts.join(' · ') + ' · (tap to copy)';
         }catch(err){ diagEl.textContent = 'Diag — error: ' + err; }
       });
     }
@@ -890,7 +843,7 @@
         '<div class="stat-tile"><span class="n">' + hoursWatched + 'h</span><span class="l">Hours watched</span></div>' +
       '</div></div>' +
       '<p style="text-align:center;color:var(--text-muted);font-size:11px;margin:6px 0 0;">TWatched ' + APP_VERSION + '</p>' +
-      '<p style="text-align:center;color:var(--text-muted);font-size:10px;margin:4px 0 0;" id="diagLine">Diagnostics: measuring…</p>' +
+      '<p style="text-align:center;color:var(--text-muted);font-size:10px;margin:4px 0 0;text-decoration:underline;cursor:pointer;" id="diagLine" data-action="copy-diag" title="Tap to copy">Diagnostics: measuring… (tap to copy)</p>' +
     '</div>';
   }
 
@@ -1191,6 +1144,28 @@
         })(); break;
       case 'dismiss-toast':
         dismissActiveToast(); break;
+      case 'copy-diag':
+        (function(){
+          var text = btn.textContent || '';
+          var original = text;
+          function flash(msg){
+            btn.textContent = msg;
+            setTimeout(function(){ btn.textContent = original; }, 1200);
+          }
+          if(navigator.clipboard && navigator.clipboard.writeText){
+            navigator.clipboard.writeText(text).then(function(){ flash('Copied — paste it in your message.'); })
+              .catch(function(){ flash('Could not copy — long-press to select the text instead.'); });
+          } else {
+            try{
+              var ta = document.createElement('textarea');
+              ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+              document.body.appendChild(ta); ta.focus(); ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              flash('Copied — paste it in your message.');
+            }catch(err){ flash('Could not copy — long-press to select the text instead.'); }
+          }
+        })(); break;
       default: break;
     }
   });
@@ -1365,16 +1340,11 @@
     }
   });
   window.addEventListener('resize', function(){
-    applyTabBarBottomFix();
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(render, 150);
   });
-  window.addEventListener('orientationchange', scheduleTabBarBottomFixChecks);
-  window.addEventListener('pageshow', scheduleTabBarBottomFixChecks);
-  window.addEventListener('focus', applyTabBarBottomFix);
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible'){
-      scheduleTabBarBottomFixChecks();
       checkForNewEpisodes();
       if(state.gh) syncNow().then(render);
     }
@@ -1395,7 +1365,6 @@
   }, { passive:false });
 
   /* ---------------- init ---------------- */
-  scheduleTabBarBottomFixChecks();
   loadState();
   render();
   checkForNewEpisodes();
