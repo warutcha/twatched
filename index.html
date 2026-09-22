@@ -90,6 +90,7 @@
   .screen-pad{ padding:6px 20px 28px; padding-top:calc(6px + env(safe-area-inset-top,0px)); }
   @media (min-width:700px){
     .screen-pad{ padding:8px 30px 32px; padding-top:calc(8px + env(safe-area-inset-top,0px)); }
+    .tab-nav{ padding:0 30px calc(6px + env(safe-area-inset-bottom,0px)); }
   }
 
   .app-screen--overlay{ background:var(--bg); z-index:40; transition: transform .34s cubic-bezier(.2,.8,.2,1); }
@@ -98,19 +99,14 @@
   .app-screen--overlay.form-ov{ transform:translateY(0); }
   .app-screen--overlay.form-ov.is-animating-in{ transform:translateY(100%); }
 
-  .tab-bar{
-    flex:0 0 auto;
-    display:flex; border-top:1px solid var(--border); background:var(--surface);
-    padding:10px 10px calc(10px + env(safe-area-inset-bottom,0px));
+  .tab-nav{ display:flex; gap:8px; margin:28px 0 4px; padding:0 20px calc(6px + env(safe-area-inset-bottom,0px)); justify-content:center; flex-wrap:wrap; }
+  .tab-nav-btn{
+    font-family:inherit; font-size:13px; font-weight:600; color:var(--text-muted);
+    padding:10px 16px; border-radius:999px; background:var(--surface); border:1px solid var(--border);
+    display:inline-flex; align-items:center; gap:6px; cursor:pointer;
   }
-  .tab-btn{
-    flex:1; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:4px;
-    padding:4px 0; color:var(--text-muted); cursor:pointer; font-size:11px; font-weight:600;
-  }
-  .tab-btn .icon{ width:23px; height:23px; }
-  .tab-btn.active{ color:var(--gold-strong); }
-  html[data-theme="dark"] .tab-btn.active,
-  html:not([data-theme="light"]) .tab-btn.active{ color:var(--gold); }
+  .tab-nav-btn .icon{ width:15px; height:15px; }
+  .tab-nav-btn.active{ color:#fff; background:var(--teal); border-color:var(--teal); }
 
   .icon{ width:20px; height:20px; }
 
@@ -252,7 +248,7 @@
   .checklist-title{ font-size:14px; font-weight:600; }
 
   .fab{
-    position:absolute; right:20px; bottom:calc(78px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; border-radius:50%; border:none;
+    position:absolute; right:20px; bottom:calc(24px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; border-radius:50%; border:none;
     background:var(--gold); color:#241a05; display:flex; align-items:center; justify-content:center; cursor:pointer;
     box-shadow:0 10px 22px rgba(169,118,42,0.4); z-index:20;
   }
@@ -403,14 +399,9 @@
     <button type="button" class="fab" id="browseFab" data-action="open-add" aria-label="Add a show" style="display:none;">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     </button>
-    <nav class="tab-bar">
-      <button class="tab-btn" data-action="set-tab" data-tab="home"></button>
-      <button class="tab-btn" data-action="set-tab" data-tab="browse"></button>
-      <button class="tab-btn" data-action="set-tab" data-tab="settings"></button>
-    </nav>
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=174"></script>
+<script src="app.js?v=175"></script>
 </body>
 </html>

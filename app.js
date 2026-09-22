@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.10.0';
+  var APP_VERSION = 'v1.11.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -426,17 +426,19 @@
   var appBody = document.getElementById('appBody');
   var pendingFocusId = null;
 
+  function tabNavHtml(){
+    var tabs = [['home','Home'],['browse','Browse'],['settings','Settings']];
+    return '<nav class="tab-nav">' + tabs.map(function(t){
+      var key = t[0], label = t[1];
+      var iconKey = key==='home'?'home':(key==='browse'?'grid':'settings');
+      return '<button type="button" class="tab-nav-btn' + (state.activeTab===key?' active':'') + '" data-action="set-tab" data-tab="' + key + '">' +
+        icon(iconKey) + '<span>' + label + '</span></button>';
+    }).join('') + '</nav>';
+  }
   function render(){
     // Set on <html> (not #app) so the theme's --bg/--surface custom properties cascade to
     // <body> too — see the CSS comment on body's background for why that now matters.
     document.documentElement.setAttribute('data-theme', state.theme==='system' ? '' : state.theme);
-
-    document.querySelectorAll('.tab-btn').forEach(function(btn){
-      var tab = btn.getAttribute('data-tab');
-      btn.classList.toggle('active', tab === state.activeTab);
-      btn.innerHTML = icon(tab==='home'?'home':(tab==='browse'?'grid':'settings')) +
-        '<span>' + (tab==='home'?'Home':(tab==='browse'?'Browse':'Settings')) + '</span>';
-    });
 
     // preserve each screen's scroll position across the innerHTML rebuild below —
     // otherwise every render() (a chip tap, a background sync, etc.) snaps scroll to top.
@@ -444,9 +446,9 @@
     appBody.querySelectorAll('.app-screen').forEach(function(el){ savedScroll.push(el.scrollTop); });
 
     var html = '';
-    html += '<div class="app-screen" style="display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + '</div>';
-    html += '<div class="app-screen" style="display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + '</div>';
-    html += '<div class="app-screen" style="display:' + (state.activeTab==='settings' ? 'block':'none') + '">' + renderSettings() + '</div>';
+    html += '<div class="app-screen" style="display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + tabNavHtml() + '</div>';
+    html += '<div class="app-screen" style="display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + tabNavHtml() + '</div>';
+    html += '<div class="app-screen" style="display:' + (state.activeTab==='settings' ? 'block':'none') + '">' + renderSettings() + tabNavHtml() + '</div>';
 
     if(state.overlay === 'detail'){
       html += '<div class="app-screen app-screen--overlay detail-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderDetailScreen() + '</div>';
@@ -459,6 +461,7 @@
     }
 
     appBody.innerHTML = html;
+
 
     appBody.querySelectorAll('.app-screen').forEach(function(el, i){
       if(savedScroll[i]) el.scrollTop = savedScroll[i];
