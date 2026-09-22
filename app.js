@@ -52,7 +52,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.6.7';
+  var APP_VERSION = 'v1.7.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -383,7 +383,9 @@
   var pendingFocusId = null;
 
   function render(){
-    appEl.setAttribute('data-theme', state.theme==='system' ? '' : state.theme);
+    // Set on <html> (not #app) so the theme's --bg/--surface custom properties cascade to
+    // <body> too — see the CSS comment on body's background for why that now matters.
+    document.documentElement.setAttribute('data-theme', state.theme==='system' ? '' : state.theme);
 
     document.querySelectorAll('.tab-btn').forEach(function(btn){
       var tab = btn.getAttribute('data-tab');

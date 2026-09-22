@@ -33,13 +33,13 @@
     --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
   @media (prefers-color-scheme: dark){
-    #app:not([data-theme="light"]){
+    html:not([data-theme="light"]){
       --bg:#0E121F; --surface:#171C2E; --surface-2:#1E2439; --text:#F3F1EA; --text-muted:#9AA0BE;
       --border: rgba(243,241,234,0.11); --gold:#E7B34C; --gold-strong:#F2C874; --teal:#4FD1C0; --teal-strong:#7BE0D1;
       --danger:#E4796C;
     }
   }
-  #app[data-theme="dark"]{
+  html[data-theme="dark"]{
     --bg:#0E121F; --surface:#171C2E; --surface-2:#1E2439; --text:#F3F1EA; --text-muted:#9AA0BE;
     --border: rgba(243,241,234,0.11); --gold:#E7B34C; --gold-strong:#F2C874; --teal:#4FD1C0; --teal-strong:#7BE0D1;
     --danger:#E4796C;
@@ -47,16 +47,24 @@
 
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
-  html{
-    /* No explicit height here on purpose. #app is position:fixed (see below) and no longer
-       depends on html/body's own box for its size at all — so there's nothing left for a
-       height:100%/-webkit-fill-available rule on the root to do except possibly feed a wrong
-       number into some other calculation. Removing it removes that risk entirely. */
-    overflow:hidden; overscroll-behavior:none;
-  }
+  html{ overflow:hidden; overscroll-behavior:none; }
+  /* This — not #app's own size — is what actually paints the strip below the tab bar. Per the
+     CSS spec, the background used for the whole canvas/viewport comes from <html>, or from
+     <body> if html has none — and it's painted across the FULL physical screen, regardless of
+     how tall html/body/#app themselves actually are. A real, on-device diagnostic finally
+     confirmed this: #app measures exactly 894px tall (matching window.innerHeight) even though
+     the physical screen is 956px — so #app's own box genuinely, correctly ends at 894px; that
+     894px isn't a bug to fix by resizing anything, it's just the real usable app surface. The
+     remaining 62px past it was never a gap in #app at all — it was always this canvas
+     background showing through underneath. Every previous attempt tried to stretch #app's own
+     box down to 956px, which was solving a problem #app didn't actually have.
+     What DID need fixing: this was painting --bg (the page's cream/navy background), not
+     --surface (the tab bar's own white/dark color) — so the strip looked like a mismatched gap
+     instead of a continuation of the bar sitting right above it. Matching it to --surface here
+     makes that strip visually read as part of the tab bar, with no measuring required. */
   body{
     overflow:hidden;
-    background:var(--bg); font-family: var(--font-body); overscroll-behavior:none;
+    background:var(--surface); font-family: var(--font-body); overscroll-behavior:none;
     touch-action: manipulation;
   }
   @media (prefers-reduced-motion: reduce){
@@ -66,17 +74,10 @@
   ::selection{ background: var(--gold); color:#1B2036; }
 
   /* ---------- app shell ----------
-     Earlier attempts tried to make #app's HEIGHT match the real screen by computing a number —
-     100vh, -webkit-fill-available, dvh, or a JS-measured "shim" added on top. All of those are
-     one arithmetic step removed from the thing that's actually wrong: on iOS, a home-screen app
-     can render taller than any of those units agree on, or (as seen on a second device) the gap
-     those units report isn't consistent enough to correct for with one measured number — fixing
-     it for one phone broke it on another.
-     position:fixed with every edge pinned to 0 sidesteps the arithmetic entirely: a fixed
-     element's box is defined directly as the browser's own real, current viewport rectangle
-     (with viewport-fit=cover, that's the true full screen), not as a height computed from a
-     unit that can be wrong. There's nothing left to mis-measure. #app is body's only child, so
-     removing it from body's normal flow this way has no effect on anything else on the page. */
+     position:fixed;inset:0 still stays: it's correct, well-supported CSS for "always exactly
+     the real usable app surface", and removes any dependency on html/body's own box for #app's
+     size. It was just never the fix for the strip below the bar — see the comment on body's
+     background above for what actually was. */
   #app{
     position:fixed; top:0; right:0; bottom:0; left:0;
     background:var(--bg); color:var(--text);
@@ -98,24 +99,9 @@
   .app-screen--overlay.form-ov.is-animating-in{ transform:translateY(100%); }
 
   .tab-bar{
-    position:relative; /* anchors the ::after bleed below */
     flex:0 0 auto;
     display:flex; border-top:1px solid var(--border); background:var(--surface);
     padding:10px 10px calc(10px + env(safe-area-inset-bottom,0px));
-  }
-  /* However much of a gap is really left below the bar on a given device/iOS version — this
-     has been measured at anywhere from ~0 to 200+px across different attempts, none reliably
-     — this guarantees it's never visibly WRONG. Instead of computing an exact number (every
-     attempt at that has produced a different, unverifiable result), the bar's own background
-     simply continues on past its real edge by a generous, fixed amount. #app clips it with
-     overflow:hidden, so on a device with no gap at all this paints nothing anyone can see; on
-     a device with a gap, it fills that gap with the bar's own color instead of bare page
-     background — so the strip below the bar is never visibly the wrong color, regardless of
-     how big it turns out to be on any given device. */
-  .tab-bar::after{
-    content:"";
-    position:absolute; left:0; right:0; top:100%; height:220px;
-    background:var(--surface); pointer-events:none;
   }
   .tab-btn{
     flex:1; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:4px;
@@ -123,8 +109,8 @@
   }
   .tab-btn .icon{ width:23px; height:23px; }
   .tab-btn.active{ color:var(--gold-strong); }
-  #app[data-theme="dark"] .tab-btn.active,
-  #app:not([data-theme="light"]) .tab-btn.active{ color:var(--gold); }
+  html[data-theme="dark"] .tab-btn.active,
+  html:not([data-theme="light"]) .tab-btn.active{ color:var(--gold); }
 
   .icon{ width:20px; height:20px; }
 
@@ -149,7 +135,7 @@
   .ep-card__perf{
     flex:0 0 auto; width:0; border-left:2px dashed rgba(27,32,54,0.18); position:relative; margin:10px 0;
   }
-  #app:not([data-theme="light"]) .ep-card__perf{ border-left-color: rgba(243,241,234,0.16); }
+  html:not([data-theme="light"]) .ep-card__perf{ border-left-color: rgba(243,241,234,0.16); }
   .ep-card__perf::before, .ep-card__perf::after{
     content:""; position:absolute; left:-7px; width:14px; height:14px; border-radius:50%; background:var(--bg);
   }
@@ -377,6 +363,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=167"></script>
+<script src="app.js?v=170"></script>
 </body>
 </html>
