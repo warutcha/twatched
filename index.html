@@ -31,11 +31,6 @@
     --danger: #A8402F;
     --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
     --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    /* Measured at runtime (see applyIOSBottomShim in app.js). Stays 0px everywhere except the
-       specific iOS "Add to Home Screen" case where the WKWebView renders taller than the
-       height:100vh/-webkit-fill-available on #app reports, leaving a gap of this many px of
-       bare <body> background between the tab bar and the real bottom edge of the screen. */
-    --ios-bottom-shim: 0px;
   }
   @media (prefers-color-scheme: dark){
     #app:not([data-theme="light"]){
@@ -69,19 +64,20 @@
   ::selection{ background: var(--gold); color:#1B2036; }
 
   /* ---------- app shell ----------
-     height:-webkit-fill-available is a reasonable base (better than raw 100vh) for most cases.
-     But on iOS, an "Add to Home Screen" app can end up with a WKWebView that's physically taller
-     than every one of 100vh / -webkit-fill-available / dvh / window.innerHeight agrees on — they
-     all under-report by the same fixed number of px, which is why switching between them alone
-     never closed the gap. --ios-bottom-shim (measured in app.js, 0px unless it detects this
-     exact case) makes up that difference on top of whichever base height applied. */
+     Earlier attempts tried to make #app's HEIGHT match the real screen by computing a number —
+     100vh, -webkit-fill-available, dvh, or a JS-measured "shim" added on top. All of those are
+     one arithmetic step removed from the thing that's actually wrong: on iOS, a home-screen app
+     can render taller than any of those units agree on, or (as seen on a second device) the gap
+     those units report isn't consistent enough to correct for with one measured number — fixing
+     it for one phone broke it on another.
+     position:fixed with every edge pinned to 0 sidesteps the arithmetic entirely: a fixed
+     element's box is defined directly as the browser's own real, current viewport rectangle
+     (with viewport-fit=cover, that's the true full screen), not as a height computed from a
+     unit that can be wrong. There's nothing left to mis-measure. #app is body's only child, so
+     removing it from body's normal flow this way has no effect on anything else on the page. */
   #app{
-    position:relative; background:var(--bg); color:var(--text);
-    height:100vh; height:-webkit-fill-available;
-    /* Final say: adds the measured shim (0px unless applyIOSBottomShim found a real gap) on
-       top of the ordinary viewport height, so #app itself reaches all the way to the true
-       bottom edge instead of leaving the tab bar floating above a strip of bare background. */
-    height: calc(100vh + var(--ios-bottom-shim));
+    position:fixed; top:0; right:0; bottom:0; left:0;
+    background:var(--bg); color:var(--text);
     display:flex; flex-direction:column; overflow:hidden;
   }
 
