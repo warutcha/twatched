@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.11.1';
+  var APP_VERSION = 'v1.12.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -425,6 +425,13 @@
   var appEl = document.getElementById('app');
   var appBody = document.getElementById('appBody');
   var pendingFocusId = null;
+  // With #app no longer position:fixed, the page scrolls normally and there is only one
+  // scroll position (window.scrollY) shared by whatever's currently in appBody — so each
+  // tab's place in its own content has to be remembered explicitly across renders instead
+  // of living on that tab's own (now nonexistent) independent scroll container.
+  var tabScrollMemory = { home:0, browse:0, settings:0 };
+  function saveTabScroll(){ tabScrollMemory[state.activeTab] = window.scrollY; }
+  function restoreTabScroll(){ window.scrollTo(0, tabScrollMemory[state.activeTab] || 0); }
 
   function tabNavHtml(){
     var tabs = [['home','Home'],['browse','Browse'],['settings','Settings']];
@@ -439,11 +446,6 @@
     // Set on <html> (not #app) so the theme's --bg/--surface custom properties cascade to
     // <body> too — see the CSS comment on body's background for why that now matters.
     document.documentElement.setAttribute('data-theme', state.theme==='system' ? '' : state.theme);
-
-    // preserve each screen's scroll position across the innerHTML rebuild below —
-    // otherwise every render() (a chip tap, a background sync, etc.) snaps scroll to top.
-    var savedScroll = [];
-    appBody.querySelectorAll('.app-screen').forEach(function(el){ savedScroll.push(el.scrollTop); });
 
     var html = '';
     html += '<div class="app-screen" style="display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + tabNavHtml() + '</div>';
@@ -462,12 +464,8 @@
 
     appBody.innerHTML = html;
 
-
-    appBody.querySelectorAll('.app-screen').forEach(function(el, i){
-      if(savedScroll[i]) el.scrollTop = savedScroll[i];
-    });
-
     if(state.justOpenedOverlay){
+      window.scrollTo(0, 0);
       state.justOpenedOverlay = false;
       requestAnimationFrame(function(){
         requestAnimationFrame(function(){
@@ -1014,7 +1012,7 @@
   }
 
   /* ---------------- interactions ---------------- */
-  function openOverlay(name){ state.overlay = name; state.justOpenedOverlay = true; }
+  function openOverlay(name){ saveTabScroll(); state.overlay = name; state.justOpenedOverlay = true; }
 
   function checkEpisode(showId){
     var btns = appBody.querySelectorAll('[data-action="check-episode"][data-show="' + showId + '"]');
@@ -1081,6 +1079,7 @@
     if(state.overlay === 'detail') state.justOpenedOverlay = false;
     state.formDraft = null; state.editingShowId = null;
     render();
+    if(state.overlay === null){ restoreTabScroll(); } else { window.scrollTo(0, 0); }
   }
   function submitForm(){
     var d = state.formDraft;
@@ -1116,7 +1115,7 @@
     state.confirmDeleteId = null;
     if(state.detailShowId === showId) state.detailShowId = null;
     state.overlay = null;
-    touch(); render();
+    touch(); render(); restoreTabScroll();
   }
 
   function fieldVal(id){ var el = document.getElementById(id); return el ? el.value.trim() : ''; }
@@ -1166,9 +1165,13 @@
     var action = btn.getAttribute('data-action');
     switch(action){
       case 'set-tab':
-        state.activeTab = btn.getAttribute('data-tab');
-        state.overlay = null;
-        render(); break;
+        (function(){
+          saveTabScroll();
+          state.activeTab = btn.getAttribute('data-tab');
+          state.overlay = null;
+          render();
+          restoreTabScroll();
+        })(); break;
       case 'check-episode':
         checkEpisode(btn.getAttribute('data-show')); break;
       case 'uncheck-episode':
@@ -1179,7 +1182,7 @@
       case 'open-detail':
         state.detailShowId = btn.getAttribute('data-show');
         state.confirmDeleteId = null;
-        if(isWideLayout()){ state.activeTab = 'browse'; render(); }
+        if(isWideLayout()){ saveTabScroll(); state.activeTab = 'browse'; render(); restoreTabScroll(); }
         else { openOverlay('detail'); render(); }
         break;
       case 'select-browse':
@@ -1187,7 +1190,7 @@
         state.confirmDeleteId = null;
         render(); break;
       case 'close-detail':
-        state.overlay = null; state.confirmDeleteId = null; render(); break;
+        state.overlay = null; state.confirmDeleteId = null; render(); restoreTabScroll(); break;
       case 'open-add':
         openAddForm(state.activeTab); render(); break;
       case 'goto-add':
@@ -1353,7 +1356,7 @@
         state.addingShowsFolderId = btn.getAttribute('data-folder');
         openOverlay('addshows'); render(); break;
       case 'close-addshows':
-        state.overlay = null; state.addingShowsFolderId = null; render(); break;
+        state.overlay = null; state.addingShowsFolderId = null; render(); restoreTabScroll(); break;
       case 'toggle-in-folder-panel':
         (function(){
           var sid = btn.getAttribute('data-show');
@@ -1443,7 +1446,7 @@
           dismissActiveToast();
           state.detailShowId = showId;
           state.confirmDeleteId = null;
-          if(isWideLayout()){ state.activeTab = 'browse'; render(); }
+          if(isWideLayout()){ saveTabScroll(); state.activeTab = 'browse'; render(); restoreTabScroll(); }
           else { openOverlay('detail'); render(); }
         })(); break;
       case 'dismiss-toast':
@@ -1715,16 +1718,6 @@
   /* ---------------- disable pinch-zoom so it behaves like a native app ---------------- */
   document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
   document.addEventListener('gesturechange', function(e){ e.preventDefault(); });
-
-  /* ---------------- lock the outer page so only the app's own screens can scroll ----------------
-     Belt-and-suspenders alongside html/body's overflow:hidden in the CSS: this stops any
-     drag that starts on non-scrollable chrome (tab bar, background) from ever reaching the
-     page and triggering iOS's rubber-band bounce, which would briefly expose bare background
-     past the edge of #app. */
-  document.addEventListener('touchmove', function(e){
-    if(e.touches && e.touches.length > 1){ e.preventDefault(); return; }
-    if(!e.target.closest('.app-screen, .crop-box')) e.preventDefault();
-  }, { passive:false });
 
   /* ---------------- init ---------------- */
   loadState();

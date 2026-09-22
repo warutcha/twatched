@@ -47,24 +47,16 @@
 
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
-  html{ overflow:hidden; overscroll-behavior:none; }
-  /* This — not #app's own size — is what actually paints the strip below #app's box. Per the
-     CSS spec, the background used for the whole canvas/viewport comes from <html>, or from
-     <body> if html has none — and it's painted across the FULL physical screen, regardless of
-     how tall html/body/#app themselves actually are. #app measures exactly 894px tall (matching
-     window.innerHeight) even though the physical screen is 956px — so #app's own box genuinely,
-     correctly ends at 894px; that isn't a bug to fix by resizing anything, it's just the real
-     usable app surface. The remaining 62px past it was never a gap in #app at all — it was
-     always this canvas background showing through underneath.
-     This used to match --surface (the old fixed tab bar's own color) so the strip read as a
-     continuation of the bar sitting right above it. Now that the tab bar is inline content
-     instead of a fixed bar, a short screen (e.g. Settings) leaves ordinary --bg page background
-     between its content's end and 894px, then hits this strip right after — matching --surface
-     here created a second, different-colored band right below the first, which read as a
-     broken gap rather than a smooth page end. Matching --bg instead makes the strip a seamless
-     continuation of the page background, which is what's actually adjacent to it now. */
+  html{ overscroll-behavior:none; }
+  /* #app used to be position:fixed, capped at window.innerHeight — which in an installed iOS
+     PWA under-reports the true screen by a fixed, unrecoverable amount (a WebKit standalone-mode
+     quirk), leaving a strip at the bottom no fixed-position element could ever paint into.
+     #app is now normal, ordinary document flow instead — html/body scroll like a regular page,
+     so there is no separate "app surface" height to fall short of; the page is simply as tall as
+     its content, and scrolling reaches the true bottom like any other webpage (matching how the
+     card app's shell already worked, which is why it never had this problem). background:var(--bg)
+     here is just the ordinary page background now — nothing special to blend into. */
   body{
-    overflow:hidden;
     background:var(--bg); font-family: var(--font-body); overscroll-behavior:none;
     touch-action: manipulation;
   }
@@ -75,26 +67,29 @@
   ::selection{ background: var(--gold); color:#1B2036; }
 
   /* ---------- app shell ----------
-     position:fixed;inset:0 still stays: it's correct, well-supported CSS for "always exactly
-     the real usable app surface", and removes any dependency on html/body's own box for #app's
-     size. It was just never the fix for the strip below the bar — see the comment on body's
-     background above for what actually was. */
+     #app is plain, ordinary document flow now — no position:fixed, no capped height. The page
+     is exactly as tall as whatever tab is showing, and grows to fit an open overlay too. */
   #app{
-    position:fixed; top:0; right:0; bottom:0; left:0;
+    position:relative; overflow-x:hidden;
     background:var(--bg); color:var(--text);
-    display:flex; flex-direction:column; overflow:hidden;
   }
 
-  .app-body{ position:relative; flex:1 1 auto; overflow:hidden; }
-  .app-screen{ position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch; }
-  .app-screen::-webkit-scrollbar{ width:0; }
-  .screen-pad{ padding:6px 20px 28px; padding-top:calc(6px + env(safe-area-inset-top,0px)); }
+  .app-body{ position:relative; overflow-x:hidden; }
+  .screen-pad{ padding:6px 20px 28px; padding-top:calc(6px + env(safe-area-inset-top,0px)); min-height:100dvh; }
   @media (min-width:700px){
     .screen-pad{ padding:8px 30px 32px; padding-top:calc(8px + env(safe-area-inset-top,0px)); }
     .tab-nav{ padding:0 30px calc(6px + env(safe-area-inset-bottom,0px)); }
   }
 
-  .app-screen--overlay{ background:var(--bg); z-index:40; transition: transform .34s cubic-bezier(.2,.8,.2,1); }
+  /* top:0/left:0/right:0 (not inset:0) deliberately leaves out "bottom" — an absolutely
+     positioned box with all four insets set takes its containing block's own height, which
+     would cap the overlay at whatever height the tab underneath happens to be. Omitting
+     "bottom" lets the overlay grow with its own content instead, with min-height as a floor
+     so a short overlay still reads as a full screen. */
+  .app-screen--overlay{
+    position:absolute; top:0; left:0; right:0; min-height:100dvh;
+    background:var(--bg); z-index:40; transition: transform .34s cubic-bezier(.2,.8,.2,1);
+  }
   .app-screen--overlay.detail-ov{ transform:translateX(0); }
   .app-screen--overlay.detail-ov.is-animating-in{ transform:translateX(100%); }
   .app-screen--overlay.form-ov{ transform:translateY(0); }
@@ -249,16 +244,16 @@
   .checklist-title{ font-size:14px; font-weight:600; }
 
   .fab{
-    position:absolute; right:20px; bottom:calc(24px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; border-radius:50%; border:none;
+    position:fixed; right:20px; bottom:calc(24px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; border-radius:50%; border:none;
     background:var(--gold); color:#241a05; display:flex; align-items:center; justify-content:center; cursor:pointer;
     box-shadow:0 10px 22px rgba(169,118,42,0.4); z-index:20;
   }
   .fab .icon{ width:24px; height:24px; }
   .fab--inline{ position:static; width:auto; height:auto; border-radius:999px; padding:11px 16px; font-size:13.5px; font-weight:700; gap:7px; box-shadow:none; margin-top:12px; }
 
-  .browse-split{ display:flex; height:100%; }
-  .browse-list-pane{ width:270px; flex:0 0 auto; border-right:1px solid var(--border); overflow-y:auto; padding:6px 14px 20px; }
-  .browse-detail-pane{ flex:1 1 auto; overflow-y:auto; padding:6px 30px 30px; position:relative; }
+  .browse-split{ display:flex; min-height:100dvh; }
+  .browse-list-pane{ width:270px; flex:0 0 auto; border-right:1px solid var(--border); padding:6px 14px 20px; }
+  .browse-detail-pane{ flex:1 1 auto; padding:6px 30px 30px; position:relative; }
   .list-row{
     display:flex; align-items:center; gap:11px; padding:9px 8px; border-radius:12px; cursor:pointer; border:none; background:none;
     width:100%; text-align:left; color:inherit;
@@ -377,7 +372,7 @@
   .crop-zoom{ width:100%; margin-top:8px; accent-color:var(--teal); }
 
   /* ---------- notification toast ---------- */
-  .toast-slot{ position:absolute; top:calc(env(safe-area-inset-top,20px) + 10px); left:12px; right:12px; z-index:60; pointer-events:none; }
+  .toast-slot{ position:fixed; top:calc(env(safe-area-inset-top,20px) + 10px); left:12px; right:12px; z-index:60; pointer-events:none; }
   .ios-toast{
     pointer-events:auto; transform:translateY(-160%); transition:transform .35s cubic-bezier(.2,.8,.2,1);
     background:rgba(24,26,38,0.92); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
@@ -403,6 +398,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=176"></script>
+<script src="app.js?v=177"></script>
 </body>
 </html>
