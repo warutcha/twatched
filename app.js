@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.13.3';
+  var APP_VERSION = 'v1.14.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -587,7 +587,7 @@
         }).join('') +
       '</div>';
       if(comingUp.length){
-        out += '<div class="settings-card upcoming-list">';
+        out += '<div class="settings-card">';
         comingUp.forEach(function(u){
           var dd = ddayLabel(daysUntil(u.info.airDate, now));
           out += '<div class="upcoming-row" data-action="open-detail" data-show="' + u.show.id + '">' +
