@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.14.0';
+  var APP_VERSION = 'v1.15.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -183,12 +183,8 @@
     formDraft: null,
     confirmDeleteId: null,
     theme: 'system',         // 'system' | 'light' | 'dark'
-    notifyEnabled: true,
-    notificationQueue: [],
-    activeToast: null,       // { showId, epNumber } | null
     shows: [],
     updatedAt: 0,            // last local data change, for sync comparison
-    lastNotifyCheck: 0,
     gh: null,                // { owner, repo, token } | null
     ghSha: null,
     ghStatus: null,          // { type: 'info'|'success'|'error', msg }
@@ -205,7 +201,6 @@
     addingShowsFolderId: null,
     castCropTargetIndex: null
   };
-  var toastTimer = null;
   var dragState = null;
   var castPhotoTargetIndex = null;
   var resizeTimer = null;
@@ -251,9 +246,7 @@
         state.shows = loaded.shows || [];
         state.shows.forEach(function(s){ if(!s.folderIds) s.folderIds = []; });
         state.theme = loaded.theme || 'system';
-        state.notifyEnabled = (loaded.notifyEnabled !== undefined) ? loaded.notifyEnabled : true;
         state.updatedAt = loaded.updatedAt || 0;
-        state.lastNotifyCheck = loaded.lastNotifyCheck || 0;
         state.categories = buildCategories(loaded);
         state.folders = (loaded.folders && loaded.folders.length) ? loaded.folders : [];
         state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
@@ -268,8 +261,8 @@
   function persistLocal(){
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        shows: state.shows, theme: state.theme, notifyEnabled: state.notifyEnabled,
-        updatedAt: state.updatedAt, lastNotifyCheck: state.lastNotifyCheck,
+        shows: state.shows, theme: state.theme,
+        updatedAt: state.updatedAt,
         categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions
       }));
     }catch(e){ /* storage unavailable — app still works in-memory this session */ }
@@ -368,58 +361,6 @@
     });
   }
 
-  /* ---------------- notifications ---------------- */
-  function requestNotifyPermissionIfNeeded(){
-    if(!('Notification' in window)) return;
-    if(Notification.permission === 'default') Notification.requestPermission();
-  }
-  function queueToasts(list){
-    state.notificationQueue = state.notificationQueue.concat(list);
-    showNextToastIfPossible();
-  }
-  function showNextToastIfPossible(){
-    if(state.activeToast) return;
-    if(!state.notifyEnabled){ state.notificationQueue = []; return; }
-    var next = state.notificationQueue.shift();
-    if(!next) return;
-    state.activeToast = next;
-    render();
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(dismissActiveToast, 4200);
-  }
-  function dismissActiveToast(){
-    clearTimeout(toastTimer);
-    if(!state.activeToast) return;
-    state.activeToast = null;
-    render();
-    setTimeout(showNextToastIfPossible, 300);
-  }
-  function checkForNewEpisodes(){
-    var last = state.lastNotifyCheck || (Date.now() - 24*3600000);
-    var now = Date.now();
-    var newly = [];
-    state.shows.forEach(function(s){
-      var info = getNextEpisodeInfo(s, now);
-      if(info.completed) return;
-      var airMs = info.airDate ? info.airDate.getTime() : null;
-      if(airMs !== null && airMs > last && airMs <= now){
-        newly.push({ showId: s.id, epNumber: info.number });
-      }
-    });
-    state.lastNotifyCheck = now;
-    persistLocal();
-    if(newly.length && state.notifyEnabled){
-      queueToasts(newly);
-      if('Notification' in window && Notification.permission === 'granted'){
-        newly.forEach(function(n){
-          var show = getShow(n.showId);
-          if(show){
-            try{ new Notification('TWatched', { body: show.title + ' — Episode ' + n.epNumber + ' is out', icon:'icon-192.png', tag:'twatched-'+show.id+'-'+n.epNumber }); }catch(e){}
-          }
-        });
-      }
-    }
-  }
 
   /* ---------------- render dispatch ---------------- */
   var appEl = document.getElementById('app');
@@ -478,23 +419,6 @@
       var el = document.getElementById(pendingFocusId);
       if(el){ el.focus(); if(el.value) { var v=el.value; el.value=''; el.value=v; } }
       pendingFocusId = null;
-    }
-
-    var toastSlot = document.getElementById('toastSlot');
-    if(state.activeToast){
-      var tShow = getShow(state.activeToast.showId);
-      if(tShow){
-        toastSlot.innerHTML = '<div class="ios-toast" data-action="open-toast" data-show="' + tShow.id + '">' +
-          '<div class="ios-toast__icon" style="' + (tShow.posterImage ? '' : posterStyle(tShow)) + '">' +
-            (tShow.posterImage ? posterImgTag(tShow,'thumbnail') : '<span>' + initialOf(tShow) + '</span>') +
-          '</div>' +
-          '<div class="ios-toast__body"><p class="ios-toast__title">TWatched · now</p><p class="ios-toast__text"><strong>' + tShow.title + '</strong> — Episode ' + state.activeToast.epNumber + ' is out</p></div>' +
-          '<button class="ios-toast__close" data-action="dismiss-toast" aria-label="Dismiss notification">' + icon('close') + '</button>' +
-        '</div>';
-      }
-      toastSlot.classList.add('is-visible');
-    } else {
-      toastSlot.classList.remove('is-visible');
     }
 
     var fabEl = document.getElementById('browseFab');
@@ -984,19 +908,12 @@
     }
 
     return '<div class="screen-pad">' +
-      '<h1 class="screen-title">Settings</h1><p class="screen-kicker">Appearance, sync, notifications, and your stats.</p>' +
+      '<h1 class="screen-title">Settings</h1><p class="screen-kicker">Appearance, sync, and your stats.</p>' +
 
       '<div class="settings-card"><h3>Appearance</h3><div class="segmented">' +
         ['system','light','dark'].map(function(t){
           return '<button data-action="set-theme" data-theme="' + t + '" class="' + (state.theme===t?'active':'') + '">' + (t==='system'?'System':t==='light'?'Light':'Dark') + '</button>';
         }).join('') + '</div></div>' +
-
-      '<div class="settings-card"><h3>Notifications</h3><div class="segmented">' +
-        [{v:'off',l:'Off'},{v:'on',l:'On'}].map(function(o){
-          return '<button data-action="set-notify" data-value="' + o.v + '" class="' + ((state.notifyEnabled?'on':'off')===o.v?'active':'') + '">' + o.l + '</button>';
-        }).join('') + '</div>' +
-        '<p class="sync-note">TWatched checks for newly-aired episodes whenever you open the app (and every few minutes while it stays open), and lets you know here and as a notification. It can\'t notify you while fully closed for days — see the README for how to extend that.</p>' +
-      '</div>' +
 
       syncCard +
 
@@ -1413,11 +1330,6 @@
       case 'set-theme':
         state.theme = btn.getAttribute('data-theme');
         persistLocal(); render(); break;
-      case 'set-notify':
-        state.notifyEnabled = btn.getAttribute('data-value') === 'on';
-        if(state.notifyEnabled) requestNotifyPermissionIfNeeded();
-        if(!state.notifyEnabled) state.notificationQueue = [];
-        persistLocal(); render(); break;
       case 'connect-github':
         connectGithub(); break;
       case 'disconnect-github':
@@ -1440,17 +1352,6 @@
             render();
           });
         })(); break;
-      case 'open-toast':
-        (function(){
-          var showId = btn.getAttribute('data-show');
-          dismissActiveToast();
-          state.detailShowId = showId;
-          state.confirmDeleteId = null;
-          if(isWideLayout()){ saveTabScroll(); state.activeTab = 'browse'; render(); restoreTabScroll(); }
-          else { openOverlay('detail'); render(); }
-        })(); break;
-      case 'dismiss-toast':
-        dismissActiveToast(); break;
       case 'copy-diag':
         (function(){
           var text = btn.textContent || '';
@@ -1710,7 +1611,6 @@
   });
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible'){
-      checkForNewEpisodes();
       if(state.gh) syncNow().then(render);
     }
   });
@@ -1722,9 +1622,7 @@
   /* ---------------- init ---------------- */
   loadState();
   render();
-  checkForNewEpisodes();
   if(state.gh){ syncNow().then(render); }
-  setInterval(checkForNewEpisodes, 10*60*1000);
   setInterval(function(){ if(state.gh) syncNow().then(render); }, 5*60*1000);
 
   if('serviceWorker' in navigator){
