@@ -195,6 +195,28 @@
     position:absolute; top:9px; left:9px; background:rgba(10,10,16,0.55); color:#fff; font-size:10.5px; font-weight:700;
     padding:4px 8px; border-radius:999px; backdrop-filter:blur(2px);
   }
+  .movie-badge{ position:absolute; top:9px; right:9px; width:24px; height:24px; border-radius:50%; background:rgba(10,10,16,0.55); display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px); }
+  .movie-badge .icon{ width:13px; height:13px; color:#fff; }
+  .star-pick{ display:flex; gap:6px; font-size:24px; color:var(--border); line-height:1; }
+  .star-pick span{ cursor:pointer; }
+  .star-pick span.on{ color:var(--gold); }
+  .field-label{ display:block; font-size:11px; font-weight:700; color:var(--text-muted); margin:0 0 6px; text-transform:uppercase; letter-spacing:.03em; }
+  .related-row{ display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; }
+  .related-chip{ flex:0 0 auto; width:78px; text-align:center; }
+  .related-chip-poster{ position:relative; width:78px; aspect-ratio:2/3; border-radius:13px; overflow:hidden; margin-bottom:5px; display:flex; align-items:center; justify-content:center; color:#fff; font-family:var(--font-display); font-style:italic; font-weight:600; font-size:16px; cursor:pointer; }
+  .related-chip-rm{ position:absolute; top:5px; right:5px; width:20px; height:20px; border-radius:50%; background:rgba(10,10,16,0.62); color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+  .related-chip-rm .icon{ width:11px; height:11px; }
+  .related-chip p{ font-size:10.5px; font-weight:700; margin:0; line-height:1.2; }
+  .related-chip span{ font-size:9px; color:var(--teal-strong); font-weight:700; }
+  .add-related{ flex:0 0 auto; width:78px; aspect-ratio:2/3; border-radius:13px; border:1.5px dashed var(--border); background:none; display:flex; align-items:center; justify-content:center; color:var(--text-muted); cursor:pointer; }
+  .add-related .icon{ width:20px; height:20px; }
+  .add-related-panel{ background:var(--surface-2); border-radius:14px; padding:14px; margin-top:12px; }
+  .add-related-panel select{
+    width:100%; font-family:inherit; font-size:15px; padding:10px 13px; border-radius:11px; border:1px solid var(--border);
+    background-color:var(--surface); color:var(--text); margin-bottom:14px; appearance:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B6F87' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+    background-repeat:no-repeat; background-position:right 13px center; background-size:16px; padding-right:36px;
+  }
   .tile-cap{ font-size:13.5px; font-weight:700; margin:8px 2px 0; line-height:1.25; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .tile-sub{ font-size:11.5px; color:var(--text-muted); margin:3px 2px 0; }
   .tile-progress{ height:3px; border-radius:3px; background:var(--border); margin:6px 2px 0; overflow:hidden; }
@@ -384,6 +406,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=188"></script>
+<script src="app.js?v=189"></script>
 </body>
 </html>

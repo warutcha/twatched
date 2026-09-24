@@ -20,7 +20,8 @@
     up: '<path d="M6 15l6-6 6 6"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
     left: '<path d="M15 6l-6 6 6 6"/>',
-    right: '<path d="M9 6l6 6-6 6"/>'
+    right: '<path d="M9 6l6 6-6 6"/>',
+    film: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 6v12M18 6v12"/>'
   };
   function icon(name, cls){
     return '<svg class="icon ' + (cls||'') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICON_PATHS[name]||'') + '</svg>';
@@ -40,6 +41,8 @@
   var PLATFORM_OPTIONS = ['Netflix','Viu','WeTV','iQIYI','Disney+','Apple TV+','HBO Go','YouTube','Local TV','Other'];
   var GENRE_OPTIONS_DEFAULT = ['Action','Comedy','Crime','Drama','Fantasy','Historical','Horror','Legal','Medical','Mystery','Political','Romance','School','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','War'];
   var VARIETY_GENRES_DEFAULT = ['Talk Show','Game Show','Reality','Cooking','Travel','Music','Talent Show','Documentary','Survival','Dating','Comedy Sketch','Awards Show','Interview','Prank'];
+  var MOVIE_GENRES_DEFAULT = ['Drama','Romance','Comedy','Thriller','Action','Horror','Sci-Fi','Fantasy','Animation','Documentary','Crime','Mystery'];
+  var RELATIONSHIP_TYPES_DEFAULT = ['Season 1','Season 2','Season 3','Prequel','Sequel','Spin-off','Standalone movie','Same universe'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
   var TZ_OPTIONS = [
     { v:'TH', l:'Thailand (ICT)', offset:7 },
@@ -55,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.17.0';
+  var APP_VERSION = 'v2.0.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -193,10 +196,14 @@
     categories: null,
     folders: [],
     nationalityOptions: NATIONALITY_OPTIONS_DEFAULT.slice(),
+    relationshipTypes: RELATIONSHIP_TYPES_DEFAULT.slice(),
+    managingRelTypes: false,
+    addingRelatedFor: null, // show id whose "add related" panel is open
     managingList: null,      // null | 'nationality'
     managingCategories: false,
     browseEditMode: false,
-    browseViewMode: 'all', // 'all' | 'folder'
+    browseViewMode: 'all', // 'all' | 'folder' | 'movies'
+    formKind: 'show', // 'show' | 'movie' — which form is currently open
     renamingFolderId: null,
     homeCategoryFilter: null,
     addingShowsFolderId: null,
@@ -227,16 +234,29 @@
       { id:'variety', name:'Variety', genres: VARIETY_GENRES_DEFAULT.slice() }
     ];
   }
+  function ensureMovieCategory(cats){
+    if(!cats.some(function(c){ return c.id === 'movie'; })){
+      cats.push({ id:'movie', name:'Movie', genres: MOVIE_GENRES_DEFAULT.slice() });
+    }
+    return cats;
+  }
   function getCategory(id){ return state.categories.filter(function(c){return c.id===id;})[0] || null; }
   function getFolder(id){ return state.folders.filter(function(f){return f.id===id;})[0] || null; }
+  function isCompletedItem(item){
+    return item.type === 'movie' ? true : (item.watched >= item.totalEpisodes);
+  }
+  function finishedTime(item){
+    if(item.type === 'movie') return item.watchedDate ? new Date(item.watchedDate).getTime() : 0;
+    return computeEpisodeDate(item, item.totalEpisodes).getTime();
+  }
   function autoSortShows(items, nowMs){
     return items.slice().sort(function(a,b){
-      var ca = a.watched >= a.totalEpisodes ? 1 : 0;
-      var cb = b.watched >= b.totalEpisodes ? 1 : 0;
-      if(ca !== cb) return ca - cb; // active/not-started shows first, completed shows last
+      var ca = isCompletedItem(a) ? 1 : 0;
+      var cb = isCompletedItem(b) ? 1 : 0;
+      if(ca !== cb) return ca - cb; // active/not-started shows first, completed (and movies) last
       if(ca === 1){
-        // both completed: most recently finished first, using each show's last episode's air date as a stand-in for "when it finished"
-        return computeEpisodeDate(b, b.totalEpisodes).getTime() - computeEpisodeDate(a, a.totalEpisodes).getTime();
+        // both completed (or movies): most recently finished/watched first
+        return finishedTime(b) - finishedTime(a);
       }
       // both active/not-started: soonest next-episode air date first, same convention as Coming Up
       var infoA = getNextEpisodeInfo(a, nowMs), infoB = getNextEpisodeInfo(b, nowMs);
@@ -259,21 +279,27 @@
     return sorted.concat(stragglers);
   }
 
+  function migrateShow(s){
+    if(!s.folderIds) s.folderIds = [];
+    if(!s.type) s.type = 'show';
+    if(!s.related) s.related = [];
+  }
   function loadState(){
     try{
       var raw = localStorage.getItem(STORAGE_KEY);
       if(raw){
         var loaded = JSON.parse(raw);
         state.shows = loaded.shows || [];
-        state.shows.forEach(function(s){ if(!s.folderIds) s.folderIds = []; });
+        state.shows.forEach(migrateShow);
         state.theme = loaded.theme || 'system';
         state.updatedAt = loaded.updatedAt || 0;
-        state.categories = buildCategories(loaded);
+        state.categories = ensureMovieCategory(buildCategories(loaded));
         state.folders = (loaded.folders && loaded.folders.length) ? loaded.folders : [];
         state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
+        state.relationshipTypes = (loaded.relationshipTypes && loaded.relationshipTypes.length) ? loaded.relationshipTypes : RELATIONSHIP_TYPES_DEFAULT.slice();
       }
     }catch(e){ /* start empty */ }
-    if(!state.categories) state.categories = buildCategories(null);
+    if(!state.categories) state.categories = ensureMovieCategory(buildCategories(null));
     try{
       var rawGh = localStorage.getItem(GH_KEY);
       if(rawGh) state.gh = JSON.parse(rawGh);
@@ -284,7 +310,8 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         shows: state.shows, theme: state.theme,
         updatedAt: state.updatedAt,
-        categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions
+        categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
+        relationshipTypes: state.relationshipTypes
       }));
     }catch(e){ /* storage unavailable — app still works in-memory this session */ }
   }
@@ -334,7 +361,7 @@
   }
 
   function syncPayload(){
-    return { shows: state.shows, updatedAt: state.updatedAt, categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions };
+    return { shows: state.shows, updatedAt: state.updatedAt, categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions, relationshipTypes: state.relationshipTypes };
   }
 
   function syncNow(){
@@ -355,11 +382,12 @@
 
       if(remoteUpdatedAt > state.updatedAt || (neverSyncedLocally && remoteHasData)){
         state.shows = remoteShows;
-        state.shows.forEach(function(s){ if(!s.folderIds) s.folderIds = []; });
+        state.shows.forEach(migrateShow);
         state.updatedAt = remoteUpdatedAt;
-        if(remoteData.categories || remoteData.genreOptionsByCategory || remoteData.genreOptions) state.categories = buildCategories(remoteData);
+        if(remoteData.categories || remoteData.genreOptionsByCategory || remoteData.genreOptions) state.categories = ensureMovieCategory(buildCategories(remoteData));
         if(remoteData.folders) state.folders = remoteData.folders;
         if(remoteData.nationalityOptions && remoteData.nationalityOptions.length) state.nationalityOptions = remoteData.nationalityOptions;
+        if(remoteData.relationshipTypes && remoteData.relationshipTypes.length) state.relationshipTypes = remoteData.relationshipTypes;
         state.ghSha = remote.sha;
         persistLocal();
         return { ok:true, action:'pulled' };
@@ -455,6 +483,7 @@
     var active = [];
     var comingUp = [];
     state.shows.forEach(function(s){
+      if(s.type === 'movie') return; // movies don't have an episode schedule — they live in Browse's Movies tab
       var info = getNextEpisodeInfo(s, now);
       if(info.completed) return;
       if(info.aired) active.push({show:s, info:info});
@@ -526,14 +555,17 @@
 
   /* ---------------- BROWSE ---------------- */
   function statusBadge(show){
+    if(show.type === 'movie') return 'Watched';
     var info = getNextEpisodeInfo(show, Date.now());
     if(info.completed) return 'Completed';
     if(info.aired) return show.watched > 0 ? 'New episode' : 'Ready to start';
     return show.watched > 0 ? 'Caught up' : 'Coming soon';
   }
+  function movieBadgeIcon(){
+    return '<div class="movie-badge">' + icon('film') + '</div>';
+  }
   function tileMarkup(show, opts){
     opts = opts || {};
-    var pct = Math.round((show.watched/show.totalEpisodes)*100);
     var rmBtn = opts.removeFolderId ? '<button class="tile-rm" data-action="remove-from-folder" data-folder="' + opts.removeFolderId + '" data-show="' + show.id + '" aria-label="Remove from this folder">' + icon('close') + '</button>' : '';
     var reorderRow = opts.reorderFolderId ? (
       '<div class="tile-reorder">' +
@@ -541,6 +573,19 @@
         '<button class="icon-btn-sm" data-action="move-show-in-folder" data-folder="' + opts.reorderFolderId + '" data-show="' + show.id + '" data-dir="1"' + (opts.isLast?' disabled style="opacity:.35;"':'') + ' aria-label="Move later">' + icon('right') + '</button>' +
       '</div>'
     ) : '';
+    if(show.type === 'movie'){
+      return '<div class="tile" data-action="open-detail" data-show="' + show.id + '">' +
+        '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
+          posterImgTag(show,'grid') +
+          movieBadgeIcon() +
+          rmBtn +
+        '</div>' +
+        '<p class="tile-cap">' + show.title + '</p>' +
+        '<p class="tile-sub">' + (show.releaseYear||'—') + ' · watched ' + (show.watchedDate ? new Date(show.watchedDate).getFullYear() : '—') + '</p>' +
+        reorderRow +
+      '</div>';
+    }
+    var pct = Math.round((show.watched/show.totalEpisodes)*100);
     return '<div class="tile" data-action="open-detail" data-show="' + show.id + '">' +
       '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
         posterImgTag(show,'grid') +
@@ -572,14 +617,22 @@
     }
     var out2 = '<div class="screen-pad" style="position:relative;min-height:100%;">';
     var editable = state.browseViewMode === 'folder';
-    out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (editable && state.browseEditMode ? 'Rename, reorder, or remove shows from folders.' : 'Tap a poster to open it.') + '</p></div>' +
+    out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (editable && state.browseEditMode ? 'Rename, reorder, or remove shows from folders.' : (state.browseViewMode==='movies' ? 'Sorted by most recently watched.' : 'Tap a poster to open it.')) + '</p></div>' +
       (editable ? '<button class="edit-toggle' + (state.browseEditMode?' active':'') + '" data-action="toggle-browse-edit">' + (state.browseEditMode?'Done':'Edit') + '</button>' : '') +
     '</div>';
     out2 += '<div class="seg-switch">' +
       '<button type="button" class="' + (state.browseViewMode==='all'?'active':'') + '" data-action="set-browse-view" data-value="all">All</button>' +
       '<button type="button" class="' + (state.browseViewMode==='folder'?'active':'') + '" data-action="set-browse-view" data-value="folder">Folder</button>' +
+      '<button type="button" class="' + (state.browseViewMode==='movies'?'active':'') + '" data-action="set-browse-view" data-value="movies">Movies</button>' +
     '</div>';
-    if(state.shows.length===0){
+    if(state.browseViewMode === 'movies'){
+      var movies = autoSortShows(state.shows.filter(function(s){ return s.type==='movie'; }), Date.now());
+      if(movies.length === 0){
+        out2 += '<div class="empty-block"><span>' + icon('film') + '</span><strong>No movies logged yet</strong><p>Tap the + button to log the first one.</p></div>';
+      } else {
+        out2 += '<div class="browse-grid">' + movies.map(function(s){ return tileMarkup(s, null); }).join('') + '</div>';
+      }
+    } else if(state.shows.length===0){
       out2 += '<div class="empty-block"><span>' + icon('ticket') + '</span><strong>Nothing added yet</strong><p>Tap the + button to add your first show.</p></div>';
     } else if(state.browseViewMode === 'all'){
       var allSorted = autoSortShows(state.shows, Date.now());
@@ -629,7 +682,71 @@
   }
 
   /* ---------------- DETAIL ---------------- */
+  function relatedSectionHtml(item){
+    var rel = item.related || [];
+    var chips = rel.map(function(r){
+      var target = getShow(r.id);
+      if(!target) return '';
+      return '<div class="related-chip">' +
+        '<div class="related-chip-poster" data-action="open-detail" data-show="' + target.id + '" style="' + (target.posterImage?'':posterStyle(target)) + '">' + posterImgTag(target,'thumbnail') + (target.posterImage?'':'<span>'+initialOf(target)+'</span>') +
+          '<button type="button" class="related-chip-rm" data-action="remove-related" data-show="' + item.id + '" data-target="' + target.id + '" aria-label="Remove link">' + icon('close') + '</button>' +
+        '</div>' +
+        '<p>' + target.title + '</p><span>' + r.label + '</span>' +
+      '</div>';
+    }).join('');
+    var adding = state.addingRelatedFor === item.id;
+    chips += '<button type="button" class="add-related" data-action="' + (adding ? 'close-add-related' : 'open-add-related') + '" data-show="' + item.id + '" aria-label="Add related title">' + icon(adding ? 'close' : 'plus') + '</button>';
+    var panel = '';
+    if(adding){
+      var others = state.shows.filter(function(s){ return s.id !== item.id; });
+      var relTypeChips = state.managingRelTypes ? (
+        '<div class="manage-panel">' +
+          '<div class="chip-row">' + state.relationshipTypes.map(function(t){
+            return '<span class="chip-x">' + t + '<button type="button" data-action="remove-reltype" data-value="' + t.replace(/"/g,'&quot;') + '">' + icon('close') + '</button></span>';
+          }).join('') + '</div>' +
+          '<input type="text" id="newRelTypeInput" class="category-add-input" placeholder="Add a new type, press Enter">' +
+        '</div>'
+      ) : '';
+      panel = '<div class="add-related-panel">' +
+        '<label class="field-label">Title</label>' +
+        '<select id="relPickTitle">' + others.map(function(s){ return '<option value="' + s.id + '">' + s.title + '</option>'; }).join('') + '</select>' +
+        '<label class="field-label">Relationship</label>' +
+        '<select id="relPickType">' + state.relationshipTypes.map(function(t){ return '<option value="' + t.replace(/"/g,'&quot;') + '">' + t + '</option>'; }).join('') + '</select>' +
+        '<button type="button" class="link-btn" data-action="toggle-manage-reltypes">' + (state.managingRelTypes ? 'Done' : 'Manage relationship types') + '</button>' +
+        relTypeChips +
+        '<button type="button" class="btn btn-primary" style="width:100%;" data-action="confirm-add-related" data-show="' + item.id + '">Add</button>' +
+      '</div>';
+    }
+    return '<p class="section-label" style="margin-top:22px;">Related</p><div class="related-row">' + chips + '</div>' + panel;
+  }
+  function renderMovieDetailContent(movie, opts){
+    opts = opts || {};
+    var deleteConfirming = state.confirmDeleteId === movie.id;
+    var stars = [1,2,3,4,5].map(function(n){ return '<span class="' + ((movie.rating||0)>=n?'on':'') + '">★</span>'; }).join('');
+    return (opts.showBack ? '<button class="icon-btn back-btn" data-action="close-detail">' + icon('back') + ' Back</button>' : '') +
+      '<div class="detail-hero" style="' + (movie.posterImage ? '' : posterStyle(movie)) + '">' +
+        posterImgTag(movie,'banner') +
+        (movie.posterImage ? '' : '<span class="detail-hero__initial">' + initialOf(movie) + '</span>') +
+        '<div class="detail-hero__actions">' +
+          '<button class="icon-btn" data-action="edit-show" data-show="' + movie.id + '" aria-label="Edit ' + movie.title + '">' + icon('pencil') + '</button>' +
+          '<button class="icon-btn icon-btn--danger' + (deleteConfirming?' danger-confirm':'') + '" data-action="delete-show" data-show="' + movie.id + '" aria-label="Delete ' + movie.title + '">' + icon('trash') + '</button>' +
+        '</div>' +
+      '</div>' +
+      (deleteConfirming ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;">Tap delete again to remove ' + movie.title + '.</p>' : '') +
+      '<h2 class="detail-title">' + movie.title + '</h2>' +
+      (movie.originalTitle ? '<p class="detail-meta detail-meta--muted" style="margin-top:-2px;">' + movie.originalTitle + '</p>' : '') +
+      '<p class="detail-meta">' + [movie.nationality].concat(movie.genres||[]).filter(Boolean).join(' · ') + '</p>' +
+      '<p class="detail-meta detail-meta--muted">' + [movie.releaseYear, movie.runtimeMinutes ? (movie.runtimeMinutes+' min') : null, movie.platform].filter(Boolean).join(' · ') + '</p>' +
+      '<p class="detail-meta detail-meta--muted">Watched ' + (movie.watchedDate ? fmtDate(new Date(movie.watchedDate + 'T00:00:00')) : '—') + '</p>' +
+      ((movie.cast||[]).length ? '<div class="chip-row">' + movie.cast.map(function(c){
+        var ce = castEntry(c);
+        return '<span class="chip cast-chip">' + (ce.photo ? '<span class="cast-chip-photo">' + castImgTag(ce) + '</span>' : '<span class="cast-chip-init">'+(ce.name.trim().charAt(0).toUpperCase()||'?')+'</span>') + ce.name + '</span>';
+      }).join('') + '</div>' : '') +
+      '<div class="star-pick" style="margin:6px 0 0;">' + stars + '</div>' +
+      relatedSectionHtml(movie);
+  }
   function renderShowDetailContent(show, opts){
+    if(show.type === 'movie') return renderMovieDetailContent(show, opts);
     opts = opts || {};
     var info = getNextEpisodeInfo(show, Date.now());
     var pct = Math.round((show.watched/show.totalEpisodes)*100);
@@ -673,7 +790,8 @@
       }).join('') + '</div>' : '') +
       '<div class="progress"><div class="progress__bar" style="width:' + pct + '%"></div></div>' +
       '<p class="progress__label">' + show.watched + ' of ' + show.totalEpisodes + ' watched</p>' +
-      '<ul class="ep-list">' + rows + '</ul>';
+      '<ul class="ep-list">' + rows + '</ul>' +
+      relatedSectionHtml(show);
   }
   function renderDetailScreen(){
     var show = getShow(state.detailShowId);
@@ -683,10 +801,15 @@
 
   /* ---------------- FORM ---------------- */
   function emptyDraft(){
-    return { id:null, title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:(state.categories[0]?state.categories[0].id:''), folderIds:[], totalEpisodes:8, airDays:[0],
+    return { id:null, type:'show', title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:(state.categories[0]?state.categories[0].id:''), folderIds:[], totalEpisodes:8, airDays:[0],
       airTime:'20:00', airTimeZone:'TH', airTimeOriginal:'20:00',
       firstAirDate: isoDateOffset(0), channel:'', platform:'', posterIndex: Math.floor(Math.random()*GRADIENTS.length),
-      posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1 };
+      posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1, related:[] };
+  }
+  function emptyMovieDraft(){
+    return { id:null, type:'movie', title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:'movie', folderIds:[],
+      releaseYear:'', runtimeMinutes:'', watchedDate: isoDateOffset(0), rating:0, platform:'',
+      posterIndex: Math.floor(Math.random()*GRADIENTS.length), posterImage:null, posterCrops: defaultCrops(), related:[] };
   }
   function tagField(label, field, values, placeholderText){
     return '<div class="field"><label>' + label + '</label>' +
@@ -790,9 +913,6 @@
   function renderFormScreen(){
     var d = state.formDraft;
     var isEdit = !!d.id;
-    var dayChips = WEEKDAY_LABELS.map(function(lbl,i){
-      return '<button type="button" class="day-chip' + (d.airDays.indexOf(i)!==-1?' active':'') + '" data-action="toggle-day" data-day="' + i + '">' + lbl + '</button>';
-    }).join('');
     var swatches = GRADIENTS.map(function(g,i){
       return '<button type="button" class="swatch' + (d.posterIndex===i?' active':'') + '" style="background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ')" data-action="set-poster" data-index="' + i + '" aria-label="Poster style ' + (i+1) + '"></button>';
     }).join('');
@@ -822,6 +942,42 @@
         '<div class="poster-upload-row"><button type="button" class="btn btn-ghost btn-sm" data-action="trigger-poster-upload">Upload a poster image instead</button></div>' +
       '</div>';
     }
+
+    if(state.formKind === 'movie'){
+      var stars = '<div class="star-pick">' + [1,2,3,4,5].map(function(n){
+        return '<span class="' + (d.rating>=n?'on':'') + '" data-action="set-movie-rating" data-value="' + n + '">★</span>';
+      }).join('') + '</div>';
+      return '<div class="screen-pad">' +
+        '<div class="form-head"><h2>' + (isEdit ? 'Edit movie' : 'Add movie') + '</h2><button type="button" data-action="cancel-form">Cancel</button></div>' +
+        '<form id="showForm">' +
+          '<div class="field"><label>Title</label><input type="text" id="f_title" data-field="title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Past Lives" required></div>' +
+          '<div class="field"><label>Original title (optional)</label><input type="text" id="f_origtitle" data-field="originalTitle" value="' + (d.originalTitle||'').replace(/"/g,'&quot;') + '" placeholder="e.g. 헤어질 결심"></div>' +
+          posterSection +
+          genrePickerField(d) +
+          nationalityField(d) +
+          folderField(d) +
+          castField(d) +
+          '<div class="two-col">' +
+            '<div class="field"><label>Release year</label><input type="number" id="f_relyear" data-field="releaseYear" min="1900" max="2100" value="' + (d.releaseYear||'') + '" placeholder="e.g. 2024"></div>' +
+            '<div class="field"><label>Runtime (minutes)</label><input type="number" id="f_runtime" data-field="runtimeMinutes" min="1" value="' + (d.runtimeMinutes||'') + '" placeholder="e.g. 118"></div>' +
+          '</div>' +
+          '<div class="two-col">' +
+            '<div class="field"><label>Watched on</label><input type="date" id="f_watcheddate" data-field="watchedDate" value="' + (d.watchedDate||'') + '"></div>' +
+            '<div class="field"><label>Platform</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Netflix, Theater"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
+          '</div>' +
+          '<div class="field"><label>Your rating</label>' + stars + '</div>' +
+          (state.confirmDeleteId === d.id ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this movie.</p>' : '') +
+          '<div class="form-actions">' +
+            (isEdit ? '<button type="button" class="btn btn-danger' + (state.confirmDeleteId===d.id?' danger-confirm':'') + '" data-action="delete-show-form">Delete</button>' : '') +
+            '<button type="submit" class="btn btn-primary">' + (isEdit ? 'Save changes' : 'Add movie') + '</button>' +
+          '</div>' +
+        '</form>' +
+      '</div>';
+    }
+
+    var dayChips = WEEKDAY_LABELS.map(function(lbl,i){
+      return '<button type="button" class="day-chip' + (d.airDays.indexOf(i)!==-1?' active':'') + '" data-action="toggle-day" data-day="' + i + '">' + lbl + '</button>';
+    }).join('');
     return '<div class="screen-pad">' +
       '<div class="form-head"><h2>' + (isEdit ? 'Edit show' : 'Add a show') + '</h2><button type="button" data-action="cancel-form">Cancel</button></div>' +
       '<form id="showForm">' +
@@ -883,10 +1039,11 @@
     return '<p class="sync-note" style="color:' + color + ';font-weight:600;">' + state.ghStatus.msg + '</p>';
   }
   function renderSettings(){
-    var totalShows = state.shows.length;
-    var totalWatched = state.shows.reduce(function(a,s){return a+s.watched;},0);
-    var completed = state.shows.filter(function(s){return s.watched>=s.totalEpisodes;}).length;
-    var totalMinutes = state.shows.reduce(function(a,s){return a + s.watched*(s.episodeMinutes||0);},0);
+    var trackedShows = state.shows.filter(function(s){ return s.type !== 'movie'; });
+    var totalShows = trackedShows.length;
+    var totalWatched = trackedShows.reduce(function(a,s){return a+s.watched;},0);
+    var completed = trackedShows.filter(function(s){return s.watched>=s.totalEpisodes;}).length;
+    var totalMinutes = trackedShows.reduce(function(a,s){return a + s.watched*(s.episodeMinutes||0);},0);
     var hoursWatched = Math.round((totalMinutes/60)*10)/10;
 
     var syncCard;
@@ -969,6 +1126,16 @@
   function openAddForm(originTab){
     state.editingShowId = null;
     state.formDraft = emptyDraft();
+    state.formKind = 'show';
+    state.formOrigin = originTab || 'browse';
+    state.confirmDeleteId = null;
+    state.castCropTargetIndex = null;
+    openOverlay('form');
+  }
+  function openAddMovieForm(originTab){
+    state.editingShowId = null;
+    state.formDraft = emptyMovieDraft();
+    state.formKind = 'movie';
     state.formOrigin = originTab || 'browse';
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
@@ -978,14 +1145,24 @@
     var s = getShow(showId);
     if(!s) return;
     state.editingShowId = showId;
-    state.formDraft = { id:s.id, title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category: s.category || (state.categories[0]?state.categories[0].id:''), folderIds:(s.folderIds||[]).slice(),
-      totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(),
-      airTime:s.airTime, airTimeZone: s.airTimeZone || 'TH', airTimeOriginal: s.airTimeOriginal || s.airTime,
-      firstAirDate:s.firstAirDate,
-      channel:s.channel||'', platform:s.platform||'', posterIndex:s.posterIndex||0,
-      posterImage: s.posterImage || null,
-      posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
-      episodeMinutes: s.episodeMinutes || '', episodesPerAiring: s.episodesPerAiring || 1 };
+    if(s.type === 'movie'){
+      state.formKind = 'movie';
+      state.formDraft = { id:s.id, type:'movie', title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category:'movie', folderIds:(s.folderIds||[]).slice(),
+        releaseYear: s.releaseYear || '', runtimeMinutes: s.runtimeMinutes || '', watchedDate: s.watchedDate || isoDateOffset(0), rating: s.rating || 0, platform: s.platform || '',
+        posterIndex: s.posterIndex||0, posterImage: s.posterImage || null,
+        posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
+        related: (s.related||[]).slice() };
+    } else {
+      state.formKind = 'show';
+      state.formDraft = { id:s.id, type:'show', title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category: s.category || (state.categories[0]?state.categories[0].id:''), folderIds:(s.folderIds||[]).slice(),
+        totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(),
+        airTime:s.airTime, airTimeZone: s.airTimeZone || 'TH', airTimeOriginal: s.airTimeOriginal || s.airTime,
+        firstAirDate:s.firstAirDate,
+        channel:s.channel||'', platform:s.platform||'', posterIndex:s.posterIndex||0,
+        posterImage: s.posterImage || null,
+        posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
+        episodeMinutes: s.episodeMinutes || '', episodesPerAiring: s.episodesPerAiring || 1, related: (s.related||[]).slice() };
+    }
     state.formOrigin = origin || 'browse';
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
@@ -999,6 +1176,7 @@
     if(state.overlay === null){ restoreTabScroll(); } else { window.scrollTo(0, 0); }
   }
   function submitForm(){
+    if(state.formKind === 'movie'){ submitMovieForm(); return; }
     var d = state.formDraft;
     if(!d.title || !d.title.trim()) return;
     var total = Math.max(1, parseInt(d.totalEpisodes,10) || 1);
@@ -1016,11 +1194,34 @@
         if(s.watched > s.totalEpisodes) s.watched = s.totalEpisodes;
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category: d.category || '', folderIds: d.folderIds.slice(), totalEpisodes:total,
+      state.shows.push({ id:'s'+Date.now(), type:'show', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category: d.category || '', folderIds: d.folderIds.slice(), totalEpisodes:total,
         airDays: d.airDays.length ? d.airDays : [0], airTime:d.airTime, airTimeZone: d.airTimeZone || 'TH', airTimeOriginal: d.airTimeOriginal || d.airTime, firstAirDate:d.firstAirDate,
         channel:d.channel, platform:d.platform, posterIndex:d.posterIndex,
         posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
-        episodeMinutes: mins, episodesPerAiring: perDrop, watched:0 });
+        episodeMinutes: mins, episodesPerAiring: perDrop, watched:0, related: d.related ? d.related.slice() : [] });
+    }
+    touch();
+    state.overlay = null; state.formDraft = null; state.editingShowId = null;
+    render();
+  }
+  function submitMovieForm(){
+    var d = state.formDraft;
+    if(!d.title || !d.title.trim()) return;
+    var year = parseInt(d.releaseYear,10) || null;
+    var runtime = parseInt(d.runtimeMinutes,10) || null;
+    var rating = Math.max(0, Math.min(5, parseInt(d.rating,10) || 0));
+    if(d.id){
+      var s = getShow(d.id);
+      if(s){
+        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.folderIds = d.folderIds.slice();
+        s.releaseYear = year; s.runtimeMinutes = runtime; s.watchedDate = d.watchedDate || isoDateOffset(0); s.rating = rating; s.platform = d.platform;
+        s.posterIndex = d.posterIndex; s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
+      }
+    } else {
+      state.shows.push({ id:'s'+Date.now(), type:'movie', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category:'movie', folderIds: d.folderIds.slice(),
+        releaseYear: year, runtimeMinutes: runtime, watchedDate: d.watchedDate || isoDateOffset(0), rating: rating, platform: d.platform,
+        posterIndex: d.posterIndex, posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
+        related: d.related ? d.related.slice() : [] });
     }
     touch();
     state.overlay = null; state.formDraft = null; state.editingShowId = null;
@@ -1056,11 +1257,12 @@
       var remoteUpdatedAt = (remote.data && remote.data.updatedAt) || 0;
       if(remoteShows.length && (!state.updatedAt || remoteUpdatedAt > state.updatedAt)){
         state.shows = remoteShows;
-        state.shows.forEach(function(s){ if(!s.folderIds) s.folderIds = []; });
+        state.shows.forEach(migrateShow);
         state.updatedAt = remoteUpdatedAt;
-        if(remote.data.categories || remote.data.genreOptionsByCategory || remote.data.genreOptions) state.categories = buildCategories(remote.data);
+        if(remote.data.categories || remote.data.genreOptionsByCategory || remote.data.genreOptions) state.categories = ensureMovieCategory(buildCategories(remote.data));
         if(remote.data.folders) state.folders = remote.data.folders;
         if(remote.data.nationalityOptions && remote.data.nationalityOptions.length) state.nationalityOptions = remote.data.nationalityOptions;
+        if(remote.data.relationshipTypes && remote.data.relationshipTypes.length) state.relationshipTypes = remote.data.relationshipTypes;
       }
       state.ghSha = remote.sha;
     }).then(function(){
@@ -1109,7 +1311,8 @@
       case 'close-detail':
         state.overlay = null; state.confirmDeleteId = null; render(); restoreTabScroll(); break;
       case 'open-add':
-        openAddForm(state.activeTab); render(); break;
+        if(state.browseViewMode === 'movies'){ openAddMovieForm(state.activeTab); } else { openAddForm(state.activeTab); }
+        render(); break;
       case 'goto-add':
         state.activeTab = 'browse';
         openAddForm('browse'); render(); break;
@@ -1140,6 +1343,9 @@
       case 'set-poster':
         state.formDraft.posterIndex = parseInt(btn.getAttribute('data-index'),10);
         render(); break;
+      case 'set-movie-rating':
+        state.formDraft.rating = parseInt(btn.getAttribute('data-value'),10);
+        render(); break;
       case 'toggle-genre':
         (function(){
           var val = btn.getAttribute('data-value');
@@ -1156,6 +1362,45 @@
             state.formDraft.genres = []; // drama and variety use different genre vocabularies
           }
           render();
+        })(); break;
+      case 'open-add-related':
+        state.addingRelatedFor = btn.getAttribute('data-show');
+        state.managingRelTypes = false;
+        render(); break;
+      case 'close-add-related':
+        state.addingRelatedFor = null;
+        state.managingRelTypes = false;
+        render(); break;
+      case 'confirm-add-related':
+        (function(){
+          var itemId = btn.getAttribute('data-show');
+          var item = getShow(itemId);
+          var targetSel = document.getElementById('relPickTitle');
+          var typeSel = document.getElementById('relPickType');
+          if(!item || !targetSel || !typeSel || !targetSel.value) return;
+          if(!item.related) item.related = [];
+          item.related.push({ id: targetSel.value, label: typeSel.value });
+          state.addingRelatedFor = null;
+          state.managingRelTypes = false;
+          touch(); render();
+        })(); break;
+      case 'remove-related':
+        (function(){
+          var itemId = btn.getAttribute('data-show'), targetId = btn.getAttribute('data-target');
+          var item = getShow(itemId);
+          if(!item || !item.related) return;
+          item.related = item.related.filter(function(r){ return r.id !== targetId; });
+          touch(); render();
+        })(); break;
+      case 'toggle-manage-reltypes':
+        state.managingRelTypes = !state.managingRelTypes;
+        render(); break;
+      case 'remove-reltype':
+        (function(){
+          var val = btn.getAttribute('data-value');
+          if(state.relationshipTypes.length <= 1) return;
+          state.relationshipTypes = state.relationshipTypes.filter(function(t){ return t !== val; });
+          touch(); render();
         })(); break;
       case 'toggle-manage-categories':
         state.managingCategories = !state.managingCategories; render(); break;
@@ -1549,6 +1794,15 @@
       if(cname){
         state.categories.push({ id: uid('cat'), name: cname, genres: [] });
         pendingFocusId = 'newCategoryInput';
+        touch(); render();
+      }
+    }
+    if(e.key === 'Enter' && e.target.id === 'newRelTypeInput'){
+      e.preventDefault();
+      var rtname = e.target.value.trim();
+      if(rtname && state.relationshipTypes.indexOf(rtname) === -1){
+        state.relationshipTypes.push(rtname);
+        pendingFocusId = 'newRelTypeInput';
         touch(); render();
       }
     }
