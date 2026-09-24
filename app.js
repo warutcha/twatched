@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.4.0';
+  var APP_VERSION = 'v2.4.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -320,7 +320,17 @@
   function saveGH(cfg){
     try{ localStorage.setItem(GH_KEY, cfg ? JSON.stringify(cfg) : ''); }catch(e){}
   }
-  function touch(){ state.updatedAt = Date.now(); persistLocal(); if(state.gh) syncNow().then(render); }
+  // Only re-render after a background sync if it actually pulled newer remote data — syncing
+  // that confirms "already up to date" or just pushes the local copy changes nothing visible,
+  // so rendering anyway was pure flicker (most noticeable right at app launch, when this sync
+  // fires immediately after the first render).
+  function syncAndMaybeRender(){
+    if(!state.gh) return;
+    syncNow().then(function(result){
+      if(result && result.action === 'pulled') render();
+    });
+  }
+  function touch(){ state.updatedAt = Date.now(); persistLocal(); syncAndMaybeRender(); }
   function currentGenreList(){
     var cat = getCategory(state.formDraft && state.formDraft.category);
     return cat ? cat.genres : [];
@@ -1898,7 +1908,7 @@
   });
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible'){
-      if(state.gh) syncNow().then(render);
+      syncAndMaybeRender();
     }
   });
 
@@ -1909,8 +1919,8 @@
   /* ---------------- init ---------------- */
   loadState();
   render();
-  if(state.gh){ syncNow().then(render); }
-  setInterval(function(){ if(state.gh) syncNow().then(render); }, 5*60*1000);
+  syncAndMaybeRender();
+  setInterval(syncAndMaybeRender, 5*60*1000);
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
