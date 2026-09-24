@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.4.1';
+  var APP_VERSION = 'v2.5.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1325,11 +1325,12 @@
     switch(action){
       case 'set-tab':
         (function(){
-          saveTabScroll();
           state.activeTab = btn.getAttribute('data-tab');
           state.overlay = null;
+          if(state.activeTab === 'browse'){ state.browseViewMode = 'all'; state.browseEditMode = false; }
           render();
-          restoreTabScroll();
+          window.scrollTo(0, 0);
+          tabScrollMemory[state.activeTab] = 0;
         })(); break;
       case 'check-episode':
         checkEpisode(btn.getAttribute('data-show')); break;
