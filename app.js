@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.1.0';
+  var APP_VERSION = 'v2.1.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -908,7 +908,7 @@
       if(cropOpen && c.photo){
         row += '<div class="crop-field" style="margin-top:0 0 14px;">' +
           '<div class="crop-box crop-box--avatar" data-crop-box data-crop-target="cast" data-cast-index="' + i + '">' + castImgTag(c) + '</div>' +
-          '<input type="range" class="crop-zoom" min="100" max="250" value="' + (c.crop.zoom||100) + '" data-crop-zoom data-crop-target="cast" data-cast-index="' + i + '">' +
+          '<input type="range" class="crop-zoom" min="100" max="250" value="' + ((c.crop && c.crop.zoom) || 100) + '" data-crop-zoom data-crop-target="cast" data-cast-index="' + i + '">' +
           '<p class="crop-hint">Drag the photo to reposition · slide to zoom</p>' +
         '</div>';
       }
@@ -1774,7 +1774,7 @@
       e.preventDefault();
       var castName = e.target.value.trim();
       if(castName && state.formDraft){
-        state.formDraft.cast.push({ name: castName, photo: null });
+        state.formDraft.cast.push({ name: castName, photo: null, crop: {x:50,y:50,zoom:100} });
         pendingFocusId = e.target.id;
         render();
         var castEl = document.getElementById(e.target.id);
