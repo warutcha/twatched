@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.15.0';
+  var APP_VERSION = 'v1.16.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -196,6 +196,7 @@
     managingList: null,      // null | 'nationality'
     managingCategories: false,
     browseEditMode: false,
+    browseViewMode: 'folder', // 'all' | 'folder'
     renamingFolderId: null,
     homeCategoryFilter: null,
     addingShowsFolderId: null,
@@ -228,14 +229,34 @@
   }
   function getCategory(id){ return state.categories.filter(function(c){return c.id===id;})[0] || null; }
   function getFolder(id){ return state.folders.filter(function(f){return f.id===id;})[0] || null; }
+  function autoSortShows(items, nowMs){
+    return items.slice().sort(function(a,b){
+      var ca = a.watched >= a.totalEpisodes ? 1 : 0;
+      var cb = b.watched >= b.totalEpisodes ? 1 : 0;
+      if(ca !== cb) return ca - cb; // active/not-started shows first, completed shows last
+      if(ca === 1){
+        // both completed: most recently finished first, using each show's last episode's air date as a stand-in for "when it finished"
+        return computeEpisodeDate(b, b.totalEpisodes).getTime() - computeEpisodeDate(a, a.totalEpisodes).getTime();
+      }
+      // both active/not-started: soonest next-episode air date first, same convention as Coming Up
+      var infoA = getNextEpisodeInfo(a, nowMs), infoB = getNextEpisodeInfo(b, nowMs);
+      var ta = infoA.completed ? Infinity : infoA.airDate.getTime();
+      var tb = infoB.completed ? Infinity : infoB.airDate.getTime();
+      return ta - tb;
+    });
+  }
   function orderedFolderItems(folder, items){
+    var autoSorted = autoSortShows(items, Date.now());
     var order = (folder && folder.order) || [];
+    if(!order.length) return autoSorted;
     var byId = {};
     items.forEach(function(s){ byId[s.id] = s; });
     var sorted = [];
     order.forEach(function(id){ if(byId[id]){ sorted.push(byId[id]); delete byId[id]; } });
-    items.forEach(function(s){ if(byId[s.id]){ sorted.push(s); } });
-    return sorted;
+    // any show not yet part of a saved manual order (newly added since the last manual
+    // reorder) is inserted via the same auto-sort rules rather than raw insertion order
+    var stragglers = autoSorted.filter(function(s){ return byId[s.id]; });
+    return sorted.concat(stragglers);
   }
 
   function loadState(){
@@ -579,10 +600,19 @@
       return out;
     }
     var out2 = '<div class="screen-pad" style="position:relative;min-height:100%;">';
-    out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (state.browseEditMode ? 'Rename, reorder, or remove shows from folders.' : 'Tap a poster to open it.') + '</p></div>' +
-      '<button class="edit-toggle' + (state.browseEditMode?' active':'') + '" data-action="toggle-browse-edit">' + (state.browseEditMode?'Done':'Edit') + '</button></div>';
+    var editable = state.browseViewMode === 'folder';
+    out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (editable && state.browseEditMode ? 'Rename, reorder, or remove shows from folders.' : 'Tap a poster to open it.') + '</p></div>' +
+      (editable ? '<button class="edit-toggle' + (state.browseEditMode?' active':'') + '" data-action="toggle-browse-edit">' + (state.browseEditMode?'Done':'Edit') + '</button>' : '') +
+    '</div>';
+    out2 += '<div class="seg-switch">' +
+      '<button type="button" class="' + (state.browseViewMode==='all'?'active':'') + '" data-action="set-browse-view" data-value="all">All</button>' +
+      '<button type="button" class="' + (state.browseViewMode==='folder'?'active':'') + '" data-action="set-browse-view" data-value="folder">Folder</button>' +
+    '</div>';
     if(state.shows.length===0){
       out2 += '<div class="empty-block"><span>' + icon('ticket') + '</span><strong>Nothing added yet</strong><p>Tap the + button to add your first show.</p></div>';
+    } else if(state.browseViewMode === 'all'){
+      var allSorted = autoSortShows(state.shows, Date.now());
+      out2 += '<div class="browse-grid">' + allSorted.map(function(s){ return tileMarkup(s, null); }).join('') + '</div>';
     } else {
       state.folders.forEach(function(f, fi){
         var items = orderedFolderItems(f, state.shows.filter(function(s){ return (s.folderIds||[]).indexOf(f.id) !== -1; }));
@@ -615,14 +645,14 @@
         }
         out2 += '</div>';
       });
-      var unsorted = state.shows.filter(function(s){ return !(s.folderIds && s.folderIds.length); });
+      var unsorted = orderedFolderItems(null, state.shows.filter(function(s){ return !(s.folderIds && s.folderIds.length); }));
       if(unsorted.length){
         out2 += '<div class="shelf shelf-unsorted"><div class="shelf-head"><h3 class="shelf-title shelf-title--muted">Unsorted</h3></div>' +
           '<div class="shelf-row">' + unsorted.map(function(s){ return tileMarkup(s, null); }).join('') + '</div></div>';
       }
+      out2 += '<div class="new-folder-row"><input type="text" id="newFolderInput" data-action-input="new-folder" placeholder="New folder name…">' +
+        '<button type="button" data-action="add-folder">Create</button></div>';
     }
-    out2 += '<div class="new-folder-row"><input type="text" id="newFolderInput" data-action-input="new-folder" placeholder="New folder name…">' +
-      '<button type="button" data-action="add-folder">Create</button></div>';
     out2 += '</div>';
     return out2;
   }
@@ -1194,6 +1224,10 @@
         })(); break;
       case 'set-homecat-filter':
         state.homeCategoryFilter = btn.getAttribute('data-value') || null;
+        render(); break;
+      case 'set-browse-view':
+        state.browseViewMode = btn.getAttribute('data-value');
+        state.browseEditMode = false;
         render(); break;
       case 'toggle-browse-edit':
         state.browseEditMode = !state.browseEditMode; state.renamingFolderId = null; render(); break;

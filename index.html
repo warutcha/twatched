@@ -185,8 +185,10 @@
   .back-btn{ position:sticky; top:10px; margin:10px 0 0 0; z-index:5; background:var(--surface); color:var(--text); border:1px solid var(--border); width:auto; padding:0 14px 0 10px; border-radius:999px; height:36px; gap:4px; font-size:13px; font-weight:700; }
 
   /* ---------- browse ---------- */
-  .browse-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-  @media (min-width:700px){ .browse-grid{ grid-template-columns:repeat(3,1fr); } }
+  .browse-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:11px; }
+  .seg-switch{ display:flex; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:4px; margin-bottom:16px; }
+  .seg-switch button{ flex:1; font-family:inherit; font-size:13.5px; font-weight:700; color:var(--text-muted); background:none; border:none; padding:9px 0; border-radius:10px; cursor:pointer; }
+  .seg-switch button.active{ background:var(--teal); color:#fff; }
   .tile{ text-align:left; background:none; border:none; padding:0; cursor:pointer; color:inherit; }
   .tile-poster{ position:relative; aspect-ratio:2/3; border-radius:16px; overflow:hidden; display:flex; align-items:flex-end; padding:10px; }
   .tile-poster .badge{
@@ -382,6 +384,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=185"></script>
+<script src="app.js?v=186"></script>
 </body>
 </html>
