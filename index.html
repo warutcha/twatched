@@ -76,6 +76,13 @@
 
   .app-body{ position:relative; overflow-x:hidden; overflow-y:visible; }
   .screen-pad{ padding:6px 20px 28px; padding-top:calc(6px + env(safe-area-inset-top,0px)); }
+  /* Overlays are a fixed box with a real, definite height (position:fixed + inset:0), so unlike
+     the base tabs' own screen-pad, a percentage height here resolves correctly and safely — it
+     can't cause the shared-flow issues fixed earlier. This just makes a short form's own content
+     area extend the full height instead of leaving plain background below it once it ends.
+     The extra bottom padding covers the home-indicator safe area — base tabs already get this
+     from tab-nav's own padding, but overlays have no tab-nav, so they need it here directly. */
+  .app-screen--overlay .screen-pad{ min-height:100%; padding-bottom:calc(28px + env(safe-area-inset-bottom,0px)); }
   @media (min-width:700px){
     .screen-pad{ padding:8px 30px 32px; padding-top:calc(8px + env(safe-area-inset-top,0px)); }
     .tab-nav{ padding:0 30px calc(6px + env(safe-area-inset-bottom,0px)); }
@@ -415,6 +422,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=200"></script>
+<script src="app.js?v=201"></script>
 </body>
 </html>

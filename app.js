@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.5.1';
+  var APP_VERSION = 'v2.5.2';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
