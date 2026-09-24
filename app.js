@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.16.1';
+  var APP_VERSION = 'v1.17.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -528,8 +528,8 @@
   function statusBadge(show){
     var info = getNextEpisodeInfo(show, Date.now());
     if(info.completed) return 'Completed';
-    if(info.aired) return 'Ep ' + info.number + ' up next';
-    return 'Caught up';
+    if(info.aired) return show.watched > 0 ? 'New episode' : 'Ready to start';
+    return show.watched > 0 ? 'Caught up' : 'Coming soon';
   }
   function tileMarkup(show, opts){
     opts = opts || {};
