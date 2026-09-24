@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.5.0';
+  var APP_VERSION = 'v2.5.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1903,7 +1903,16 @@
       submitForm();
     }
   });
+  // Only re-render on a genuine width change (the one thing that actually affects layout here,
+  // via isWideLayout()'s breakpoint). iOS fires plain resize events for height-only changes too
+  // — e.g. the address bar/toolbar collapsing as the page scrolls, which happens constantly now
+  // that the page scrolls normally — and re-rendering for those was tearing down and rebuilding
+  // every card (posters included) for no layout-relevant reason, which is what looked like a
+  // flicker on Home.
+  var lastKnownWidth = window.innerWidth;
   window.addEventListener('resize', function(){
+    if(window.innerWidth === lastKnownWidth) return;
+    lastKnownWidth = window.innerWidth;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(render, 150);
   });
