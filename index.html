@@ -302,6 +302,10 @@
   .detail-meta{ margin:0 0 3px; font-size:13.5px; color:var(--text); }
   .detail-meta--muted{ color:var(--text-muted); }
   .chip-row{ display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 4px; }
+  .selected-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .sel-chip{ font-size:12.5px; font-weight:700; padding:7px 8px 7px 12px; border-radius:999px; background:var(--teal); color:#fff; display:inline-flex; align-items:center; gap:6px; }
+  .sel-chip button{ background:rgba(255,255,255,0.28); border:none; color:#fff; border-radius:50%; width:18px; height:18px; display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer; }
+  .sel-chip .icon{ width:10px; height:10px; }
   .chip{ background:var(--surface-2); border:1px solid var(--border); font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px; }
   .chip-x{ display:inline-flex; align-items:center; gap:5px; }
   .chip-x button{ border:none; background:none; padding:0; cursor:pointer; color:var(--text-muted); display:flex; }
@@ -411,6 +415,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=195"></script>
+<script src="app.js?v=196"></script>
 </body>
 </html>

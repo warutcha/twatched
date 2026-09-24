@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.2.0';
+  var APP_VERSION = 'v2.3.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -201,6 +201,7 @@
     addingRelatedFor: null, // show id whose "add related" panel is open
     managingList: null,      // null | 'nationality'
     managingCategories: false,
+    genrePickerExpanded: false,
     browseEditMode: false,
     browseViewMode: 'all', // 'all' | 'folder' | 'movies'
     formKind: 'show', // 'show' | 'movie' — which form is currently open
@@ -241,6 +242,7 @@
     return cats;
   }
   function getCategory(id){ return state.categories.filter(function(c){return c.id===id;})[0] || null; }
+  function genreCategoryId(id){ return id === 'movie' ? 'drama' : id; }
   function getFolder(id){ return state.folders.filter(function(f){return f.id===id;})[0] || null; }
   function isCompletedItem(item){
     return item.type === 'movie' ? true : (item.watched >= item.totalEpisodes);
@@ -839,7 +841,7 @@
     '</div>';
   }
   function categoryField(d){
-    var chips = state.categories.map(function(c){
+    var chips = state.categories.filter(function(c){ return c.id !== 'movie'; }).map(function(c){
       return '<button type="button" class="opt-chip' + (d.category===c.id?' active':'') + '" data-action="set-category" data-value="' + c.id + '">' + c.name + '</button>';
     }).join('');
     return '<div class="field"><label>Category</label><div class="day-chips">' + chips + '</div>' +
@@ -849,7 +851,7 @@
   }
   function renderManageCategoriesPanel(){
     var out = '';
-    state.categories.forEach(function(c){
+    state.categories.filter(function(c){ return c.id !== 'movie'; }).forEach(function(c){
       out += '<div class="category-card">' +
         '<div class="category-card-head">' +
           '<input type="text" value="' + c.name.replace(/"/g,'&quot;') + '" data-action-input="rename-category" data-cat="' + c.id + '">' +
@@ -866,14 +868,23 @@
     return out;
   }
   function genrePickerField(d){
-    var cat = getCategory(d.category);
+    var effectiveCatId = genreCategoryId(d.category);
+    var cat = getCategory(effectiveCatId);
     var list = cat ? cat.genres : [];
     var display = list.concat(d.genres.filter(function(g){ return list.indexOf(g) === -1; }));
-    var chips = display.map(function(g){
+    var expanded = state.genrePickerExpanded;
+    var selectedChips = d.genres.map(function(g){
+      return '<span class="sel-chip">' + g + '<button type="button" data-action="remove-genre" data-value="' + g.replace(/"/g,'&quot;') + '" aria-label="Remove ' + g.replace(/"/g,'&quot;') + '">' + icon('close') + '</button></span>';
+    }).join('');
+    var allChips = display.map(function(g){
       var active = d.genres.indexOf(g) !== -1;
       return '<button type="button" class="opt-chip' + (active?' active':'') + '" data-action="toggle-genre" data-value="' + g.replace(/"/g,'&quot;') + '">' + g + '</button>';
     }).join('');
-    return '<div class="field"><label>Genre <span style="font-weight:400;color:var(--text-muted);">(' + (cat?cat.name:'—') + ' set)</span></label><div class="day-chips">' + (chips || '<span class="crop-hint" style="margin:0;">No genres in this category yet — add some via Manage categories.</span>') + '</div></div>';
+    return '<div class="field"><label>Genre <span style="font-weight:400;color:var(--text-muted);">(' + (cat?cat.name:'—') + ' set)</span></label>' +
+      (d.genres.length ? '<div class="selected-row">' + selectedChips + '</div>' : '<p class="crop-hint" style="margin:0 0 8px;">No genres selected yet.</p>') +
+      '<button type="button" class="link-btn" data-action="toggle-genre-picker">' + (expanded ? 'Done' : 'Edit genres') + '</button>' +
+      (expanded ? '<div class="day-chips" style="margin-top:10px;">' + (allChips || '<span class="crop-hint" style="margin:0;">No genres in this set yet — add some via Manage categories.</span>') + '</div>' : '') +
+    '</div>';
   }
   function folderField(d){
     var chips = state.folders.map(function(f){
@@ -1139,6 +1150,7 @@
     state.formOrigin = originTab || 'browse';
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
+    state.genrePickerExpanded = false;
     openOverlay('form');
   }
   function openAddMovieForm(originTab){
@@ -1148,6 +1160,7 @@
     state.formOrigin = originTab || 'browse';
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
+    state.genrePickerExpanded = false;
     openOverlay('form');
   }
   function openEditForm(showId, origin){
@@ -1175,6 +1188,7 @@
     state.formOrigin = origin || 'browse';
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
+    state.genrePickerExpanded = false;
     openOverlay('form');
   }
   function closeForm(){
@@ -1368,6 +1382,17 @@
           if(pos === -1) arr.push(val); else arr.splice(pos,1);
           render();
         })(); break;
+      case 'remove-genre':
+        (function(){
+          var val = btn.getAttribute('data-value');
+          var arr = state.formDraft.genres;
+          var pos = arr.indexOf(val);
+          if(pos !== -1) arr.splice(pos,1);
+          render();
+        })(); break;
+      case 'toggle-genre-picker':
+        state.genrePickerExpanded = !state.genrePickerExpanded;
+        render(); break;
       case 'set-category':
         (function(){
           var newCat = btn.getAttribute('data-value');
