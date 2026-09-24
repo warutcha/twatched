@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.5.2';
+  var APP_VERSION = 'v2.5.3';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -450,9 +450,19 @@
     document.documentElement.setAttribute('data-theme', state.theme==='system' ? '' : state.theme);
 
     var html = '';
-    html += '<div class="app-screen" style="display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + tabNavHtml() + '</div>';
-    html += '<div class="app-screen" style="display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + tabNavHtml() + '</div>';
-    html += '<div class="app-screen" style="display:' + (state.activeTab==='settings' ? 'block':'none') + '">' + renderSettings() + tabNavHtml() + '</div>';
+    // visibility:hidden (not display:none) when an overlay is open: this keeps the base tab's
+    // normal-flow layout and height contribution completely intact — display:none was tried here
+    // before and caused a full freeze, almost certainly from collapsing that flow to zero height —
+    // but stops it from painting anything. That matters specifically because overlays are
+    // position:fixed, which on an installed iOS PWA is capped a fixed amount short of the true
+    // screen height (the same platform quirk fixed for the base shell months ago, now resurfacing
+    // for overlays instead). Whatever's visible in that uncovered strip is whatever the base tab
+    // underneath paints there; hiding it guarantees that strip is plain --bg instead of a sliver
+    // of Browse bleeding through.
+    var baseVis = state.overlay ? 'visibility:hidden;' : '';
+    html += '<div class="app-screen" style="' + baseVis + 'display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + tabNavHtml() + '</div>';
+    html += '<div class="app-screen" style="' + baseVis + 'display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + tabNavHtml() + '</div>';
+    html += '<div class="app-screen" style="' + baseVis + 'display:' + (state.activeTab==='settings' ? 'block':'none') + '">' + renderSettings() + tabNavHtml() + '</div>';
 
     if(state.overlay === 'detail'){
       html += '<div class="app-screen app-screen--overlay detail-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderDetailScreen() + '</div>';
