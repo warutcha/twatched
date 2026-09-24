@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.1.1';
+  var APP_VERSION = 'v2.2.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -645,11 +645,11 @@
     } else if(state.shows.length===0){
       out2 += '<div class="empty-block"><span>' + icon('ticket') + '</span><strong>Nothing added yet</strong><p>Tap the + button to add your first show.</p></div>';
     } else if(state.browseViewMode === 'all'){
-      var allSorted = autoSortShows(state.shows, Date.now());
+      var allSorted = autoSortShows(state.shows.filter(function(s){ return s.type !== 'movie'; }), Date.now());
       out2 += '<div class="browse-grid">' + allSorted.map(function(s){ return tileMarkup(s, null); }).join('') + '</div>';
     } else {
       state.folders.forEach(function(f, fi){
-        var items = orderedFolderItems(f, state.shows.filter(function(s){ return (s.folderIds||[]).indexOf(f.id) !== -1; }));
+        var items = orderedFolderItems(f, state.shows.filter(function(s){ return s.type !== 'movie' && (s.folderIds||[]).indexOf(f.id) !== -1; }));
         out2 += '<div class="shelf">';
         out2 += '<div class="shelf-head">';
         if(state.renamingFolderId === f.id){
@@ -679,7 +679,7 @@
         }
         out2 += '</div>';
       });
-      var unsorted = orderedFolderItems(null, state.shows.filter(function(s){ return !(s.folderIds && s.folderIds.length); }));
+      var unsorted = orderedFolderItems(null, state.shows.filter(function(s){ return s.type !== 'movie' && !(s.folderIds && s.folderIds.length); }));
       if(unsorted.length){
         out2 += '<div class="shelf shelf-unsorted"><div class="shelf-head"><h3 class="shelf-title shelf-title--muted">Unsorted</h3></div>' +
           '<div class="shelf-row">' + unsorted.map(function(s){ return tileMarkup(s, null); }).join('') + '</div></div>';
@@ -817,7 +817,7 @@
       posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1, related:[] };
   }
   function emptyMovieDraft(){
-    return { id:null, type:'movie', title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:'movie', folderIds:[],
+    return { id:null, type:'movie', title:'', originalTitle:'', genres:[], cast:[], nationality:'', category:'movie',
       releaseYear:'', runtimeMinutes:'', watchedDate: isoDateOffset(0), rating:0, platform:'',
       posterIndex: Math.floor(Math.random()*GRADIENTS.length), posterImage:null, posterCrops: defaultCrops(), related:[] };
   }
@@ -965,7 +965,6 @@
           posterSection +
           genrePickerField(d) +
           nationalityField(d) +
-          folderField(d) +
           castField(d) +
           '<div class="two-col">' +
             '<div class="field"><label>Release year</label><input type="number" id="f_relyear" data-field="releaseYear" min="1900" max="2100" value="' + (d.releaseYear||'') + '" placeholder="e.g. 2024"></div>' +
@@ -1028,7 +1027,7 @@
   function renderAddShowsPanel(){
     var f = getFolder(state.addingShowsFolderId);
     if(!f) return '<div class="screen-pad"><p class="screen-kicker">Folder not found.</p></div>';
-    var rows = state.shows.map(function(s){
+    var rows = state.shows.filter(function(s){ return s.type !== 'movie'; }).map(function(s){
       var checked = (s.folderIds||[]).indexOf(f.id) !== -1;
       return '<button type="button" class="checklist-row' + (checked?' checked':'') + '" data-action="toggle-in-folder-panel" data-show="' + s.id + '">' +
         '<span class="checklist-cb">' + (checked?icon('check'):'') + '</span>' +
@@ -1157,7 +1156,7 @@
     state.editingShowId = showId;
     if(s.type === 'movie'){
       state.formKind = 'movie';
-      state.formDraft = { id:s.id, type:'movie', title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category:'movie', folderIds:(s.folderIds||[]).slice(),
+      state.formDraft = { id:s.id, type:'movie', title:s.title, originalTitle: s.originalTitle || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category:'movie',
         releaseYear: s.releaseYear || '', runtimeMinutes: s.runtimeMinutes || '', watchedDate: s.watchedDate || isoDateOffset(0), rating: s.rating || 0, platform: s.platform || '',
         posterIndex: s.posterIndex||0, posterImage: s.posterImage || null,
         posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
@@ -1228,12 +1227,12 @@
     if(d.id){
       var s = getShow(d.id);
       if(s){
-        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || ''; s.folderIds = d.folderIds.slice();
+        s.title = d.title.trim(); s.originalTitle = (d.originalTitle||'').trim(); s.genres = d.genres; s.cast = d.cast; s.nationality = d.nationality || '';
         s.releaseYear = year; s.runtimeMinutes = runtime; s.watchedDate = d.watchedDate || isoDateOffset(0); s.rating = rating; s.platform = d.platform;
         s.posterIndex = d.posterIndex; s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), type:'movie', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category:'movie', folderIds: d.folderIds.slice(),
+      state.shows.push({ id:'s'+Date.now(), type:'movie', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category:'movie',
         releaseYear: year, runtimeMinutes: runtime, watchedDate: d.watchedDate || isoDateOffset(0), rating: rating, platform: d.platform,
         posterIndex: d.posterIndex, posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
         related: d.related ? d.related.slice() : [] });
