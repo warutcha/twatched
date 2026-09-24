@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.0.0';
+  var APP_VERSION = 'v2.0.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -966,7 +966,7 @@
             '<div class="field"><label>Platform</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Netflix, Theater"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
           '</div>' +
           '<div class="field"><label>Your rating</label>' + stars + '</div>' +
-          (state.confirmDeleteId === d.id ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this movie.</p>' : '') +
+          ((d.id && state.confirmDeleteId === d.id) ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this movie.</p>' : '') +
           '<div class="form-actions">' +
             (isEdit ? '<button type="button" class="btn btn-danger' + (state.confirmDeleteId===d.id?' danger-confirm':'') + '" data-action="delete-show-form">Delete</button>' : '') +
             '<button type="submit" class="btn btn-primary">' + (isEdit ? 'Save changes' : 'Add movie') + '</button>' +
@@ -1005,7 +1005,7 @@
           '<div class="field"><label>Channel</label><input type="text" id="f_channel" data-field="channel" value="' + (d.channel||'').replace(/"/g,'&quot;') + '" placeholder="e.g. ONE31"></div>' +
           '<div class="field"><label>Platform (where you watch)</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. WeTV"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
         '</div>' +
-        (state.confirmDeleteId === d.id ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this show.</p>' : '') +
+        ((d.id && state.confirmDeleteId === d.id) ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this show.</p>' : '') +
         '<div class="form-actions">' +
           (isEdit ? '<button type="button" class="btn btn-danger' + (state.confirmDeleteId===d.id?' danger-confirm':'') + '" data-action="delete-show-form">Delete</button>' : '') +
           '<button type="submit" class="btn btn-primary">' + (isEdit ? 'Save changes' : 'Add show') + '</button>' +
