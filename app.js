@@ -55,7 +55,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v1.16.0';
+  var APP_VERSION = 'v1.16.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -196,7 +196,7 @@
     managingList: null,      // null | 'nationality'
     managingCategories: false,
     browseEditMode: false,
-    browseViewMode: 'folder', // 'all' | 'folder'
+    browseViewMode: 'all', // 'all' | 'folder'
     renamingFolderId: null,
     homeCategoryFilter: null,
     addingShowsFolderId: null,
@@ -446,35 +446,6 @@
     if(fabEl){
       var showFab = (state.activeTab === 'browse' && !state.overlay && !isWideLayout());
       fabEl.style.display = showFab ? 'flex' : 'none';
-    }
-
-    var diagEl = document.getElementById('diagLine');
-    if(diagEl){
-      requestAnimationFrame(function(){
-        try{
-          var tb = document.querySelector('.tab-bar');
-          var tbRect = tb ? tb.getBoundingClientRect() : null;
-          var appRect = appEl ? appEl.getBoundingClientRect() : null;
-          var standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-          var vvH = window.visualViewport ? Math.round(window.visualViewport.height) : null;
-          var screenH = window.screen ? window.screen.height : null;
-          var tabBarBottom = tbRect ? Math.round(tbRect.bottom) : null;
-          var parts = [
-            'standalone=' + standalone,
-            'innerH=' + window.innerHeight,
-            'vvH=' + (vvH===null?'n/a':vvH),
-            'screenH=' + (screenH===null?'n/a':screenH),
-            'appHeight=' + (appRect ? Math.round(appRect.height) : 'n/a'),
-            'tabBarBottom=' + (tabBarBottom===null?'n/a':tabBarBottom),
-            // The raw, unpadded gap between the bar's own bottom edge and the true screen
-            // bottom, before the CSS bleed (.tab-bar::after) covers it. Not expected to be
-            // 0 — the bleed is what handles this now, not this number — but seeing it is
-            // what actually lets a real fix get designed instead of guessed at.
-            'rawGap=' + ((screenH!==null && tabBarBottom!==null) ? (screenH - tabBarBottom) + 'px' : 'n/a')
-          ];
-          diagEl.textContent = 'Diag — ' + parts.join(' · ') + ' · (tap to copy)';
-        }catch(err){ diagEl.textContent = 'Diag — error: ' + err; }
-      });
     }
   }
 
@@ -954,7 +925,6 @@
         '<div class="stat-tile"><span class="n">' + hoursWatched + 'h</span><span class="l">Hours watched</span></div>' +
       '</div></div>' +
       '<p style="text-align:center;color:var(--text-muted);font-size:11px;margin:6px 0 0;">TWatched ' + APP_VERSION + '</p>' +
-      '<p style="text-align:center;color:var(--text-muted);font-size:10px;margin:4px 0 0;text-decoration:underline;cursor:pointer;" id="diagLine" data-action="copy-diag" title="Tap to copy">Diagnostics: measuring… (tap to copy)</p>' +
     '</div>';
   }
 
@@ -1385,28 +1355,6 @@
             }
             render();
           });
-        })(); break;
-      case 'copy-diag':
-        (function(){
-          var text = btn.textContent || '';
-          var original = text;
-          function flash(msg){
-            btn.textContent = msg;
-            setTimeout(function(){ btn.textContent = original; }, 1200);
-          }
-          if(navigator.clipboard && navigator.clipboard.writeText){
-            navigator.clipboard.writeText(text).then(function(){ flash('Copied — paste it in your message.'); })
-              .catch(function(){ flash('Could not copy — long-press to select the text instead.'); });
-          } else {
-            try{
-              var ta = document.createElement('textarea');
-              ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
-              document.body.appendChild(ta); ta.focus(); ta.select();
-              document.execCommand('copy');
-              document.body.removeChild(ta);
-              flash('Copied — paste it in your message.');
-            }catch(err){ flash('Could not copy — long-press to select the text instead.'); }
-          }
         })(); break;
       default: break;
     }
