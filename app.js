@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.3.0';
+  var APP_VERSION = 'v2.4.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -722,8 +722,10 @@
       panel = '<div class="add-related-panel">' +
         '<label class="field-label">Title</label>' +
         '<select id="relPickTitle">' + others.map(function(s){ return '<option value="' + s.id + '">' + s.title + '</option>'; }).join('') + '</select>' +
-        '<label class="field-label">Relationship</label>' +
+        '<label class="field-label">Relationship (how this relates to them)</label>' +
         '<select id="relPickType">' + state.relationshipTypes.map(function(t){ return '<option value="' + t.replace(/"/g,'&quot;') + '">' + t + '</option>'; }).join('') + '</select>' +
+        '<label class="field-label">Reverse (how they relate to this)</label>' +
+        '<select id="relPickTypeReverse">' + state.relationshipTypes.map(function(t){ return '<option value="' + t.replace(/"/g,'&quot;') + '">' + t + '</option>'; }).join('') + '</select>' +
         '<button type="button" class="link-btn" data-action="toggle-manage-reltypes">' + (state.managingRelTypes ? 'Done' : 'Manage relationship types') + '</button>' +
         relTypeChips +
         '<button type="button" class="btn btn-primary" style="width:100%;" data-action="confirm-add-related" data-show="' + item.id + '">Add</button>' +
@@ -1416,9 +1418,18 @@
           var item = getShow(itemId);
           var targetSel = document.getElementById('relPickTitle');
           var typeSel = document.getElementById('relPickType');
+          var reverseSel = document.getElementById('relPickTypeReverse');
           if(!item || !targetSel || !typeSel || !targetSel.value) return;
+          var target = getShow(targetSel.value);
+          if(!target) return;
           if(!item.related) item.related = [];
-          item.related.push({ id: targetSel.value, label: typeSel.value });
+          if(!target.related) target.related = [];
+          // remove any existing link between these two first, so re-linking replaces
+          // rather than duplicates (in either direction)
+          item.related = item.related.filter(function(r){ return r.id !== target.id; });
+          target.related = target.related.filter(function(r){ return r.id !== item.id; });
+          item.related.push({ id: target.id, label: typeSel.value });
+          target.related.push({ id: item.id, label: (reverseSel && reverseSel.value) || typeSel.value });
           state.addingRelatedFor = null;
           state.managingRelTypes = false;
           touch(); render();
@@ -1427,8 +1438,9 @@
         (function(){
           var itemId = btn.getAttribute('data-show'), targetId = btn.getAttribute('data-target');
           var item = getShow(itemId);
-          if(!item || !item.related) return;
-          item.related = item.related.filter(function(r){ return r.id !== targetId; });
+          var target = getShow(targetId);
+          if(item && item.related) item.related = item.related.filter(function(r){ return r.id !== targetId; });
+          if(target && target.related) target.related = target.related.filter(function(r){ return r.id !== itemId; });
           touch(); render();
         })(); break;
       case 'toggle-manage-reltypes':
