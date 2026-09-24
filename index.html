@@ -81,14 +81,19 @@
     .tab-nav{ padding:0 30px calc(6px + env(safe-area-inset-bottom,0px)); }
   }
 
-  /* top:0/left:0/right:0 (not inset:0) deliberately leaves out "bottom" — an absolutely
-     positioned box with all four insets set takes its containing block's own height, which
-     would cap the overlay at whatever height the tab underneath happens to be. Omitting
-     "bottom" lets the overlay grow with its own content instead, with min-height as a floor
-     so a short overlay still reads as a full screen. */
+  /* Overlays (detail/form/add-shows) are their own independent, fixed, self-scrolling boxes —
+     deliberately NOT part of the page's own document flow. Every attempt to make an overlay
+     share document flow / height with the base tab underneath it (absolute positioning sized to
+     the tab's own auto-height, hiding the base tab to avoid double-counting its height, etc.)
+     produced a new failure mode each time — inaccessible content, scroll snapping back, a total
+     freeze. A fixed, self-contained scroll box sidesteps all of that: its own scrollHeight comes
+     purely from its own content, completely decoupled from whatever the base tab underneath is
+     doing, and the base tab can safely stay exactly as it is (still display:block) since the
+     overlay's opaque background fully covers it and captures all touch input itself. */
   .app-screen--overlay{
-    position:absolute; top:0; left:0; right:0; min-height:100dvh;
-    background:var(--bg); z-index:40; transition: transform .34s cubic-bezier(.2,.8,.2,1);
+    position:fixed; inset:0; z-index:40;
+    background:var(--bg); overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
+    transition: transform .34s cubic-bezier(.2,.8,.2,1);
   }
   .app-screen--overlay.detail-ov{ transform:translateX(0); }
   .app-screen--overlay.detail-ov.is-animating-in{ transform:translateX(100%); }
@@ -406,6 +411,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=192"></script>
+<script src="app.js?v=193"></script>
 </body>
 </html>

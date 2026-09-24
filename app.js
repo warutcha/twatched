@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.0.3';
+  var APP_VERSION = 'v2.1.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -452,15 +452,25 @@
       html += '<div class="app-screen app-screen--overlay form-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderAddShowsPanel() + '</div>';
     }
 
+    var prevOverlay = appBody.querySelector('.app-screen--overlay');
+    var prevOverlayScroll = prevOverlay ? prevOverlay.scrollTop : 0;
+
     appBody.innerHTML = html;
 
+    // Overlays are position:fixed with their own scroll now, so replacing innerHTML always
+    // creates a brand-new element whose scrollTop starts at 0 — unlike the page's own scroll
+    // (window.scrollY), which naturally survives a content swap. Without this, any in-place
+    // re-render while an overlay is open (toggling a panel, adding a cast member, editing a
+    // field) would silently yank the view back to the top of the form every time.
+    var newOverlay = appBody.querySelector('.app-screen--overlay');
+    if(newOverlay){
+      newOverlay.scrollTop = state.justOpenedOverlay ? 0 : prevOverlayScroll;
+    }
     if(state.justOpenedOverlay){
-      window.scrollTo(0, 0);
       state.justOpenedOverlay = false;
       requestAnimationFrame(function(){
         requestAnimationFrame(function(){
-          var ov = appBody.querySelector('.app-screen--overlay');
-          if(ov) ov.classList.remove('is-animating-in');
+          if(newOverlay) newOverlay.classList.remove('is-animating-in');
         });
       });
     }
@@ -1173,7 +1183,12 @@
     if(state.overlay === 'detail') state.justOpenedOverlay = false;
     state.formDraft = null; state.editingShowId = null;
     render();
-    if(state.overlay === null){ restoreTabScroll(); } else { window.scrollTo(0, 0); }
+    if(state.overlay === null){
+      restoreTabScroll();
+    } else {
+      var ov = appBody.querySelector('.app-screen--overlay');
+      if(ov) ov.scrollTop = 0;
+    }
   }
   function submitForm(){
     if(state.formKind === 'movie'){ submitMovieForm(); return; }
