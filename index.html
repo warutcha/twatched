@@ -89,19 +89,20 @@
     .tab-nav{ padding:0 30px calc(6px + env(safe-area-inset-bottom,0px)); }
   }
 
-  /* Overlays (detail/form/add-shows) are their own independent, fixed, self-scrolling boxes —
-     deliberately NOT part of the page's own document flow. Every attempt to make an overlay
-     share document flow / height with the base tab underneath it (absolute positioning sized to
-     the tab's own auto-height, hiding the base tab to avoid double-counting its height, etc.)
-     produced a new failure mode each time — inaccessible content, scroll snapping back, a total
-     freeze. A fixed, self-contained scroll box sidesteps all of that: its own scrollHeight comes
-     purely from its own content, completely decoupled from whatever the base tab underneath is
-     doing, and the base tab can safely stay exactly as it is (still display:block) since the
-     overlay's opaque background fully covers it and captures all touch input itself. */
+  /* Overlays (detail/form/add-shows) are now ordinary, normal-flow page content — nothing special
+     about their positioning at all. That's only possible because render() no longer generates the
+     base tab screens at all while one is open (see the comment there); with nothing else in the
+     document competing for space, the overlay doesn't need position:fixed/absolute tricks to stay
+     isolated — it just is, by construction. This is also why it correctly reaches the true bottom
+     of the screen: normal document flow was never subject to the iOS standalone quirk that caps a
+     position:fixed box short of the true screen height (proven unfixable by CSS alone, months ago,
+     for the base app shell) — that quirk is what broke the previous, position:fixed version of
+     this rule specifically for shorter content like Add Movie. min-height keeps a short overlay
+     reading as a full screen; content taller than that just grows the page, exactly like Home,
+     Browse, and Settings already do. */
   .app-screen--overlay{
-    position:fixed; inset:0; z-index:40;
-    background:var(--bg); overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
-    transition: transform .34s cubic-bezier(.2,.8,.2,1);
+    min-height:100dvh;
+    background:var(--bg); z-index:40; transition: transform .34s cubic-bezier(.2,.8,.2,1);
   }
   .app-screen--overlay.detail-ov{ transform:translateX(0); }
   .app-screen--overlay.detail-ov.is-animating-in{ transform:translateX(100%); }
@@ -423,6 +424,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=203"></script>
+<script src="app.js?v=204"></script>
 </body>
 </html>

@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.5.4';
+  var APP_VERSION = 'v2.6.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -450,49 +450,42 @@
     document.documentElement.setAttribute('data-theme', state.theme==='system' ? '' : state.theme);
 
     var html = '';
-    // visibility:hidden (not display:none) when an overlay is open: this keeps the base tab's
-    // normal-flow layout and height contribution completely intact — display:none was tried here
-    // before and caused a full freeze, almost certainly from collapsing that flow to zero height —
-    // but stops it from painting anything. That matters specifically because overlays are
-    // position:fixed, which on an installed iOS PWA is capped a fixed amount short of the true
-    // screen height (the same platform quirk fixed for the base shell months ago, now resurfacing
-    // for overlays instead). Whatever's visible in that uncovered strip is whatever the base tab
-    // underneath paints there; hiding it guarantees that strip is plain --bg instead of a sliver
-    // of Browse bleeding through.
-    var baseVis = state.overlay ? 'visibility:hidden;' : '';
-    html += '<div class="app-screen" style="' + baseVis + 'display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + tabNavHtml() + '</div>';
-    html += '<div class="app-screen" style="' + baseVis + 'display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + tabNavHtml() + '</div>';
-    html += '<div class="app-screen" style="' + baseVis + 'display:' + (state.activeTab==='settings' ? 'block':'none') + '">' + renderSettings() + tabNavHtml() + '</div>';
-
-    if(state.overlay === 'detail'){
+    // When an overlay is open, the 3 base-tab screens are not generated at all — not hidden via
+    // CSS, not present in the DOM in any form. Every previous attempt kept them (hidden one way
+    // or another) alongside the overlay, and each one failed differently: display:none caused a
+    // total freeze, visibility:hidden kept them contributing nothing visible but the overlay was
+    // then position:fixed to avoid re-triggering the old scroll bugs, which reintroduced the
+    // original iOS platform quirk (a fixed-position box is capped short of the true screen height,
+    // proven unfixable months ago for the base shell) for overlays instead. With nothing else in
+    // the document at all, the overlay can go back to being normal, ordinary page content — no
+    // special positioning needed — which reaches the true bottom exactly like Home/Browse/Settings
+    // already correctly do, because it's now sharing their same proven mechanism instead of
+    // fighting it from alongside.
+    if(!state.overlay){
+      html += '<div class="app-screen" style="display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + tabNavHtml() + '</div>';
+      html += '<div class="app-screen" style="display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + tabNavHtml() + '</div>';
+      html += '<div class="app-screen" style="display:' + (state.activeTab==='settings' ? 'block':'none') + '">' + renderSettings() + tabNavHtml() + '</div>';
+    } else if(state.overlay === 'detail'){
       html += '<div class="app-screen app-screen--overlay detail-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderDetailScreen() + '</div>';
-    }
-    if(state.overlay === 'form'){
+    } else if(state.overlay === 'form'){
       html += '<div class="app-screen app-screen--overlay form-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderFormScreen() + '</div>';
-    }
-    if(state.overlay === 'addshows'){
+    } else if(state.overlay === 'addshows'){
       html += '<div class="app-screen app-screen--overlay form-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderAddShowsPanel() + '</div>';
     }
 
-    var prevOverlay = appBody.querySelector('.app-screen--overlay');
-    var prevOverlayScroll = prevOverlay ? prevOverlay.scrollTop : 0;
-
     appBody.innerHTML = html;
 
-    // Overlays are position:fixed with their own scroll now, so replacing innerHTML always
-    // creates a brand-new element whose scrollTop starts at 0 — unlike the page's own scroll
-    // (window.scrollY), which naturally survives a content swap. Without this, any in-place
-    // re-render while an overlay is open (toggling a panel, adding a cast member, editing a
-    // field) would silently yank the view back to the top of the form every time.
-    var newOverlay = appBody.querySelector('.app-screen--overlay');
-    if(newOverlay){
-      newOverlay.scrollTop = state.justOpenedOverlay ? 0 : prevOverlayScroll;
-    }
+    // window.scrollY (unlike an individual element's scrollTop) naturally survives this innerHTML
+    // replacement on its own, as long as the new content is tall enough — no capture/restore
+    // needed for ordinary in-place re-renders (toggling a panel, editing a field, etc.). Only a
+    // freshly-opened overlay needs an explicit reset to the top.
     if(state.justOpenedOverlay){
+      window.scrollTo(0, 0);
       state.justOpenedOverlay = false;
       requestAnimationFrame(function(){
         requestAnimationFrame(function(){
-          if(newOverlay) newOverlay.classList.remove('is-animating-in');
+          var ov = appBody.querySelector('.app-screen--overlay');
+          if(ov) ov.classList.remove('is-animating-in');
         });
       });
     }
@@ -1221,8 +1214,7 @@
     if(state.overlay === null){
       restoreTabScroll();
     } else {
-      var ov = appBody.querySelector('.app-screen--overlay');
-      if(ov) ov.scrollTop = 0;
+      window.scrollTo(0, 0);
     }
   }
   function submitForm(){
