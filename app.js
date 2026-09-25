@@ -58,7 +58,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.6.0';
+  var APP_VERSION = 'v2.7.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -249,6 +249,9 @@
   }
   function finishedTime(item){
     if(item.type === 'movie') return item.watchedDate ? new Date(item.watchedDate).getTime() : 0;
+    // Prefer the real watch-completion timestamp; shows completed before this was tracked have
+    // no completedAt, so fall back to the old proxy (their last episode's air date) for those.
+    if(item.completedAt) return item.completedAt;
     return computeEpisodeDate(item, item.totalEpisodes).getTime();
   }
   function autoSortShows(items, nowMs){
@@ -268,17 +271,7 @@
     });
   }
   function orderedFolderItems(folder, items){
-    var autoSorted = autoSortShows(items, Date.now());
-    var order = (folder && folder.order) || [];
-    if(!order.length) return autoSorted;
-    var byId = {};
-    items.forEach(function(s){ byId[s.id] = s; });
-    var sorted = [];
-    order.forEach(function(id){ if(byId[id]){ sorted.push(byId[id]); delete byId[id]; } });
-    // any show not yet part of a saved manual order (newly added since the last manual
-    // reorder) is inserted via the same auto-sort rules rather than raw insertion order
-    var stragglers = autoSorted.filter(function(s){ return byId[s.id]; });
-    return sorted.concat(stragglers);
+    return autoSortShows(items, Date.now());
   }
 
   function migrateShow(s){
@@ -592,12 +585,6 @@
   function tileMarkup(show, opts){
     opts = opts || {};
     var rmBtn = opts.removeFolderId ? '<button class="tile-rm" data-action="remove-from-folder" data-folder="' + opts.removeFolderId + '" data-show="' + show.id + '" aria-label="Remove from this folder">' + icon('close') + '</button>' : '';
-    var reorderRow = opts.reorderFolderId ? (
-      '<div class="tile-reorder">' +
-        '<button class="icon-btn-sm" data-action="move-show-in-folder" data-folder="' + opts.reorderFolderId + '" data-show="' + show.id + '" data-dir="-1"' + (opts.isFirst?' disabled style="opacity:.35;"':'') + ' aria-label="Move earlier">' + icon('left') + '</button>' +
-        '<button class="icon-btn-sm" data-action="move-show-in-folder" data-folder="' + opts.reorderFolderId + '" data-show="' + show.id + '" data-dir="1"' + (opts.isLast?' disabled style="opacity:.35;"':'') + ' aria-label="Move later">' + icon('right') + '</button>' +
-      '</div>'
-    ) : '';
     if(show.type === 'movie'){
       return '<div class="tile" data-action="open-detail" data-show="' + show.id + '">' +
         '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
@@ -607,7 +594,6 @@
         '</div>' +
         '<p class="tile-cap">' + show.title + '</p>' +
         '<p class="tile-sub">' + (show.releaseYear||'—') + ' · watched ' + (show.watchedDate ? new Date(show.watchedDate).getFullYear() : '—') + '</p>' +
-        reorderRow +
       '</div>';
     }
     var pct = Math.round((show.watched/show.totalEpisodes)*100);
@@ -620,7 +606,6 @@
       '<p class="tile-cap">' + show.title + '</p>' +
       '<p class="tile-sub">' + (show.platform||'—') + ' · ' + show.watched + '/' + show.totalEpisodes + '</p>' +
       '<div class="tile-progress"><i style="width:' + pct + '%"></i></div>' +
-      reorderRow +
     '</div>';
   }
   function renderBrowse(){
@@ -685,8 +670,8 @@
         if(items.length === 0){
           out2 += '<div class="shelf-empty">No shows here yet.</div>';
         } else {
-          out2 += '<div class="shelf-row">' + items.map(function(s, si){
-            return tileMarkup(s, state.browseEditMode ? { removeFolderId:f.id, reorderFolderId:f.id, isFirst: si===0, isLast: si===items.length-1 } : null);
+          out2 += '<div class="shelf-row">' + items.map(function(s){
+            return tileMarkup(s, state.browseEditMode ? { removeFolderId:f.id } : null);
           }).join('') + '</div>';
         }
         if(state.browseEditMode){
@@ -1128,7 +1113,11 @@
     btns.forEach(function(b){ b.classList.add('is-punching'); });
     setTimeout(function(){
       var show = getShow(showId);
-      if(show && show.watched < show.totalEpisodes){ show.watched += 1; touch(); render(); }
+      if(show && show.watched < show.totalEpisodes){
+        show.watched += 1;
+        if(show.watched >= show.totalEpisodes) show.completedAt = Date.now();
+        touch(); render();
+      }
     }, 260);
   }
 
@@ -1339,7 +1328,11 @@
       case 'uncheck-episode':
         (function(){
           var s = getShow(btn.getAttribute('data-show'));
-          if(s && s.watched > 0){ s.watched -= 1; touch(); render(); }
+          if(s && s.watched > 0){
+            s.watched -= 1;
+            if(s.watched < s.totalEpisodes) s.completedAt = null;
+            touch(); render();
+          }
         })(); break;
       case 'open-detail':
         state.detailShowId = btn.getAttribute('data-show');
@@ -1565,21 +1558,6 @@
           var fid = btn.getAttribute('data-folder'), sid = btn.getAttribute('data-show');
           var s = getShow(sid); if(!s || !s.folderIds) return;
           s.folderIds = s.folderIds.filter(function(x){ return x !== fid; });
-          var f0 = getFolder(fid);
-          if(f0 && f0.order) f0.order = f0.order.filter(function(x){ return x !== sid; });
-          touch(); render();
-        })(); break;
-      case 'move-show-in-folder':
-        (function(){
-          var fid = btn.getAttribute('data-folder'), sid = btn.getAttribute('data-show'), dir = parseInt(btn.getAttribute('data-dir'),10);
-          var f = getFolder(fid); if(!f) return;
-          var items = orderedFolderItems(f, state.shows.filter(function(s){ return (s.folderIds||[]).indexOf(fid) !== -1; }));
-          var idx = -1;
-          items.forEach(function(s,i){ if(s.id===sid) idx=i; });
-          var swap = idx + dir;
-          if(idx === -1 || swap < 0 || swap >= items.length) return;
-          var tmp = items[idx]; items[idx] = items[swap]; items[swap] = tmp;
-          f.order = items.map(function(s){ return s.id; });
           touch(); render();
         })(); break;
       case 'open-addshows':
@@ -1596,8 +1574,6 @@
           var i = s.folderIds.indexOf(fid);
           if(i === -1){ s.folderIds.push(fid); } else {
             s.folderIds.splice(i,1);
-            var f1 = getFolder(fid);
-            if(f1 && f1.order) f1.order = f1.order.filter(function(x){ return x !== sid; });
           }
           touch(); render();
         })(); break;
