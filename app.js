@@ -44,6 +44,7 @@
   var MOVIE_GENRES_DEFAULT = ['Drama','Romance','Comedy','Thriller','Action','Horror','Sci-Fi','Fantasy','Animation','Documentary','Crime','Mystery'];
   var RELATIONSHIP_TYPES_DEFAULT = ['Season 1','Season 2','Season 3','Prequel','Sequel','Spin-off','Standalone movie','Same universe'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
+  var SEASON_LABELS_DEFAULT = ['Season 1','Season 2','Season 3','Prequel','Sequel','Spin-off','Standalone movie'];
   var TZ_OPTIONS = [
     { v:'TH', l:'Thailand (ICT)', offset:7 },
     { v:'KR', l:'Korea (KST)', offset:9 },
@@ -58,7 +59,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.8.0';
+  var APP_VERSION = 'v2.8.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -197,8 +198,9 @@
     folders: [],
     nationalityOptions: NATIONALITY_OPTIONS_DEFAULT.slice(),
     relationshipTypes: RELATIONSHIP_TYPES_DEFAULT.slice(),
+    seasonLabels: SEASON_LABELS_DEFAULT.slice(),
     addingRelatedFor: null, // show id whose "add related" panel is open
-    managingList: null,      // null | 'nationality'
+    managingList: null,      // null | 'nationality' | 'season'
     managingCategories: false,
     genrePickerExpanded: false,
     browseEditMode: false,
@@ -292,6 +294,7 @@
         state.folders = (loaded.folders && loaded.folders.length) ? loaded.folders : [];
         state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
         state.relationshipTypes = (loaded.relationshipTypes && loaded.relationshipTypes.length) ? loaded.relationshipTypes : RELATIONSHIP_TYPES_DEFAULT.slice();
+        state.seasonLabels = (loaded.seasonLabels && loaded.seasonLabels.length) ? loaded.seasonLabels : SEASON_LABELS_DEFAULT.slice();
       }
     }catch(e){ /* start empty */ }
     if(!state.categories) state.categories = ensureMovieCategory(buildCategories(null));
@@ -306,7 +309,7 @@
         shows: state.shows, theme: state.theme,
         updatedAt: state.updatedAt,
         categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
-        relationshipTypes: state.relationshipTypes
+        relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels
       }));
     }catch(e){ /* storage unavailable — app still works in-memory this session */ }
   }
@@ -327,6 +330,11 @@
   function currentGenreList(){
     var cat = getCategory(state.formDraft && state.formDraft.category);
     return cat ? cat.genres : [];
+  }
+  function listByKey(listKey){
+    if(listKey === 'genre') return currentGenreList();
+    if(listKey === 'season') return state.seasonLabels;
+    return state.nationalityOptions;
   }
 
   function getShow(id){ return state.shows.filter(function(s){return s.id===id;})[0] || null; }
@@ -366,7 +374,7 @@
   }
 
   function syncPayload(){
-    return { shows: state.shows, updatedAt: state.updatedAt, categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions, relationshipTypes: state.relationshipTypes };
+    return { shows: state.shows, updatedAt: state.updatedAt, categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions, relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels };
   }
 
   function syncNow(){
@@ -393,6 +401,7 @@
         if(remoteData.folders) state.folders = remoteData.folders;
         if(remoteData.nationalityOptions && remoteData.nationalityOptions.length) state.nationalityOptions = remoteData.nationalityOptions;
         if(remoteData.relationshipTypes && remoteData.relationshipTypes.length) state.relationshipTypes = remoteData.relationshipTypes;
+        if(remoteData.seasonLabels && remoteData.seasonLabels.length) state.seasonLabels = remoteData.seasonLabels;
         state.ghSha = remote.sha;
         persistLocal();
         return { ok:true, action:'pulled' };
@@ -897,6 +906,16 @@
       (state.managingList === 'nationality' ? manageListPanel('nationality', state.nationalityOptions) : '') +
     '</div>';
   }
+  function seasonLabelField(d){
+    var opts = state.seasonLabels.map(function(n){
+      return '<option value="' + n.replace(/"/g,'&quot;') + '"' + (d.seasonLabel===n?' selected':'') + '>' + n + '</option>';
+    }).join('');
+    return '<div class="field"><label>Season / part label (optional)</label>' +
+      '<select id="f_seasonlabel" data-field="seasonLabel"><option value=""' + (!d.seasonLabel?' selected':'') + '>—</option>' + opts + '</select>' +
+      '<button type="button" class="link-btn" data-action="toggle-manage-list" data-list="season">' + (state.managingList==='season' ? 'Done' : 'Manage list') + '</button>' +
+      (state.managingList === 'season' ? manageListPanel('season', state.seasonLabels) : '') +
+    '</div>';
+  }
   function castField(d){
     var rows = d.cast.map(function(c, i){
       var cropOpen = state.castCropTargetIndex === i;
@@ -965,7 +984,7 @@
         '<form id="showForm">' +
           '<div class="field"><label>Title</label><input type="text" id="f_title" data-field="title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Past Lives" required></div>' +
           '<div class="field"><label>Original title (optional)</label><input type="text" id="f_origtitle" data-field="originalTitle" value="' + (d.originalTitle||'').replace(/"/g,'&quot;') + '" placeholder="e.g. 헤어질 결심"></div>' +
-          '<div class="field"><label>Season / part label (optional)</label><input type="text" id="f_seasonlabel" data-field="seasonLabel" value="' + (d.seasonLabel||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Season 1, Prequel"></div>' +
+          seasonLabelField(d) +
           posterSection +
           genrePickerField(d) +
           nationalityField(d) +
@@ -996,7 +1015,7 @@
       '<form id="showForm">' +
         '<div class="field"><label>Title</label><input type="text" id="f_title" data-field="title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Nightbound" required></div>' +
         '<div class="field"><label>Original title (optional)</label><input type="text" id="f_origtitle" data-field="originalTitle" value="' + (d.originalTitle||'').replace(/"/g,'&quot;') + '" placeholder="e.g. 로또 1등도 출근합니다"></div>' +
-        '<div class="field"><label>Season / part label (optional)</label><input type="text" id="f_seasonlabel" data-field="seasonLabel" value="' + (d.seasonLabel||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Season 1, Prequel"></div>' +
+        seasonLabelField(d) +
         posterSection +
         categoryField(d) +
         genrePickerField(d) +
@@ -1288,6 +1307,7 @@
         if(remote.data.folders) state.folders = remote.data.folders;
         if(remote.data.nationalityOptions && remote.data.nationalityOptions.length) state.nationalityOptions = remote.data.nationalityOptions;
         if(remote.data.relationshipTypes && remote.data.relationshipTypes.length) state.relationshipTypes = remote.data.relationshipTypes;
+        if(remote.data.seasonLabels && remote.data.seasonLabels.length) state.seasonLabels = remote.data.seasonLabels;
       }
       state.ghSha = remote.sha;
     }).then(function(){
@@ -1563,7 +1583,7 @@
         (function(){
           var listKey = btn.getAttribute('data-list');
           var val = btn.getAttribute('data-value');
-          var arr = listKey === 'genre' ? currentGenreList() : state.nationalityOptions;
+          var arr = listByKey(listKey);
           var pos = arr.indexOf(val);
           if(pos !== -1){ arr.splice(pos,1); touch(); }
           render();
@@ -1790,7 +1810,7 @@
       var listKey = e.target.getAttribute('data-list-add-input');
       var newVal = e.target.value.trim();
       if(newVal){
-        var arr = listKey === 'genre' ? currentGenreList() : state.nationalityOptions;
+        var arr = listByKey(listKey);
         if(arr.indexOf(newVal) === -1){ arr.push(newVal); touch(); }
         pendingFocusId = e.target.id;
         render();
