@@ -59,7 +59,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.8.2';
+  var APP_VERSION = 'v2.8.3';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1713,7 +1713,7 @@
     if(e.target && e.target.id === 'posterFileInput' && state.formDraft){
       var file = e.target.files && e.target.files[0];
       if(!file) return;
-      readAndDownscaleImage(file, 480, 0.75, function(dataUri){
+      readAndDownscaleImage(file, 900, 0.82, function(dataUri){
         if(dataUri && state.formDraft){
           state.formDraft.posterImage = dataUri;
           if(!state.formDraft.posterCrops) state.formDraft.posterCrops = defaultCrops();
