@@ -59,7 +59,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.8.1';
+  var APP_VERSION = 'v2.8.2';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1725,7 +1725,7 @@
       var castFile = e.target.files && e.target.files[0];
       var idx = castPhotoTargetIndex;
       if(!castFile || idx === null || !state.formDraft.cast[idx]) return;
-      readAndDownscaleImage(castFile, 160, 0.75, function(dataUri){
+      readAndDownscaleImage(castFile, 480, 0.8, function(dataUri){
         if(dataUri && state.formDraft && state.formDraft.cast[idx]){
           state.formDraft.cast[idx].photo = dataUri;
           state.castCropTargetIndex = idx;
