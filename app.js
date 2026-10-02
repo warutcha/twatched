@@ -59,7 +59,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.8.3';
+  var APP_VERSION = 'v2.9.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -189,6 +189,9 @@
     theme: 'system',         // 'system' | 'light' | 'dark'
     shows: [],
     updatedAt: 0,            // last local data change, for sync comparison
+    metaUpdatedAt: 0,        // last change to the shared lists (genres, folders, nationalities, labels)
+    deleted: {},             // id -> time deleted, so a deletion survives a merge with another device
+    syncQueued: false,       // a sync was requested while one was running; re-run when it finishes
     gh: null,                // { owner, repo, token } | null
     ghSha: null,
     ghStatus: null,          // { type: 'info'|'success'|'error', msg }
@@ -290,6 +293,8 @@
         state.shows.forEach(migrateShow);
         state.theme = loaded.theme || 'system';
         state.updatedAt = loaded.updatedAt || 0;
+        state.metaUpdatedAt = loaded.metaUpdatedAt || 0;
+        state.deleted = loaded.deleted || {};
         state.categories = ensureMovieCategory(buildCategories(loaded));
         state.folders = (loaded.folders && loaded.folders.length) ? loaded.folders : [];
         state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
@@ -307,7 +312,7 @@
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         shows: state.shows, theme: state.theme,
-        updatedAt: state.updatedAt,
+        updatedAt: state.updatedAt, metaUpdatedAt: state.metaUpdatedAt, deleted: state.deleted,
         categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
         relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels
       }));
@@ -326,7 +331,33 @@
       if(result && result.action === 'pulled') render();
     });
   }
-  function touch(){ state.updatedAt = Date.now(); persistLocal(); syncAndMaybeRender(); }
+  /* Change tracking for sync. Every show carries modifiedAt; deletions are remembered in state.deleted.
+     Rather than touching every edit site, touch() compares each show with a snapshot taken at the last
+     touch/sync and stamps only the ones that actually changed. */
+  var snapShows = {}, snapMeta = '';
+  function showJson(s){ return JSON.stringify(s, function(k, v){ return k === 'modifiedAt' ? undefined : v; }); }
+  function metaObj(){
+    return { categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
+             relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels };
+  }
+  function resetSnapshot(){
+    snapShows = {};
+    state.shows.forEach(function(s){ snapShows[s.id] = showJson(s); });
+    snapMeta = JSON.stringify(metaObj());
+  }
+  function stampChanges(){
+    var now = Date.now(), cur = {};
+    state.shows.forEach(function(s){
+      var j = showJson(s); cur[s.id] = j;
+      if(snapShows[s.id] !== j){ s.modifiedAt = now; delete state.deleted[s.id]; }
+      else if(!s.modifiedAt){ s.modifiedAt = state.updatedAt || 0; }
+    });
+    Object.keys(snapShows).forEach(function(id){ if(!(id in cur)) state.deleted[id] = now; });
+    snapShows = cur;
+    var m = JSON.stringify(metaObj());
+    if(m !== snapMeta){ state.metaUpdatedAt = now; snapMeta = m; }
+  }
+  function touch(){ stampChanges(); state.updatedAt = Date.now(); persistLocal(); syncAndMaybeRender(); }
   function currentGenreList(){
     var cat = getCategory(state.formDraft && state.formDraft.category);
     return cat ? cat.genres : [];
@@ -344,15 +375,23 @@
   function b64DecodeUnicode(str){ return decodeURIComponent(escape(atob(str.replace(/\n/g,'')))); }
 
   function ghGetFile(cfg){
-    var url = 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo + '/contents/data.json';
-    return fetch(url, { headers: { 'Authorization':'Bearer ' + cfg.token, 'Accept':'application/vnd.github+json' } })
+    var base = 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo;
+    var headers = { 'Authorization':'Bearer ' + cfg.token, 'Accept':'application/vnd.github+json' };
+    function parse(b64){ try{ return JSON.parse(b64DecodeUnicode(b64)); }catch(e){ return null; } }
+    return fetch(base + '/contents/data.json', { headers: headers, cache:'no-store' })
       .then(function(res){
         if(res.status === 404) return { exists:false };
         if(!res.ok) return res.text().then(function(t){ throw new Error('GitHub GET ' + res.status + ': ' + t); });
         return res.json().then(function(json){
-          var data = null;
-          try{ data = JSON.parse(b64DecodeUnicode(json.content)); }catch(e){ data = null; }
-          return { exists:true, sha: json.sha, data: data };
+          if(json.size === 0) return { exists:true, sha: json.sha, data: {} };
+          if(json.content && json.encoding !== 'none'){
+            return { exists:true, sha: json.sha, data: parse(json.content) };
+          }
+          // Files over 1 MB come back from the contents API with no body — fetch the blob instead.
+          return fetch(base + '/git/blobs/' + json.sha, { headers: headers, cache:'no-store' }).then(function(r){
+            if(!r.ok) return r.text().then(function(t){ throw new Error('GitHub blob ' + r.status + ': ' + t); });
+            return r.json().then(function(blob){ return { exists:true, sha: json.sha, data: parse(blob.content) }; });
+          });
         });
       });
   }
@@ -360,7 +399,7 @@
     var url = 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo + '/contents/data.json';
     var body = {
       message: 'TWatched sync ' + new Date().toISOString(),
-      content: b64EncodeUnicode(JSON.stringify(dataObj, null, 2))
+      content: b64EncodeUnicode(JSON.stringify(dataObj))
     };
     if(sha) body.sha = sha;
     return fetch(url, {
@@ -374,12 +413,89 @@
   }
 
   function syncPayload(){
-    return { shows: state.shows, updatedAt: state.updatedAt, categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions, relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels };
+    return { shows: state.shows, updatedAt: state.updatedAt, metaUpdatedAt: state.metaUpdatedAt, deleted: state.deleted,
+             categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
+             relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels };
   }
 
-  function syncNow(){
-    if(!state.gh || state.syncing) return Promise.resolve({ ok:false, reason:'skip' });
+  function stable(v){
+    if(Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+    if(v && typeof v === 'object'){
+      return '{' + Object.keys(v).sort().filter(function(k){ return v[k] !== undefined; }).map(function(k){ return JSON.stringify(k) + ':' + stable(v[k]); }).join(',') + '}';
+    }
+    return JSON.stringify(v);
+  }
+  function fingerprint(shows, deleted, meta, metaAt){
+    var sorted = shows.slice().sort(function(a,b){ return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0); });
+    return stable({ shows: sorted, deleted: deleted || {}, meta: meta, metaAt: metaAt || 0 });
+  }
+
+  // Merge the remote copy into local state, show by show. Newer modifiedAt wins per show, a show
+  // only on one side is kept, and a deletion only removes a show that wasn't edited after it.
+  // Nothing is ever dropped just because another device's copy is "newer" overall.
+  function applyRemote(rd){
+    var lUpd = state.updatedAt || 0, rUpd = rd.updatedAt || 0;
+    var remoteShows = (rd.shows || []).slice();
+    remoteShows.forEach(migrateShow);
+    state.shows.forEach(migrateShow);
+    state.shows.forEach(function(s){ if(!s.modifiedAt) s.modifiedAt = lUpd; });
+    remoteShows.forEach(function(s){ if(!s.modifiedAt) s.modifiedAt = rUpd; });
+
+    var rMetaAt = rd.metaUpdatedAt || rUpd, lMetaAt = state.metaUpdatedAt || lUpd;
+    var remoteMeta = { categories: rd.categories, folders: rd.folders, nationalityOptions: rd.nationalityOptions,
+                       relationshipTypes: rd.relationshipTypes, seasonLabels: rd.seasonLabels };
+    var remoteFp = fingerprint(remoteShows, rd.deleted || {}, remoteMeta, rd.metaUpdatedAt || 0);
+
+    var beforeFp = fingerprint(state.shows, state.deleted, metaObj(), state.metaUpdatedAt);
+
+    var del = {};
+    [state.deleted, rd.deleted || {}].forEach(function(m){ Object.keys(m).forEach(function(id){ del[id] = Math.max(del[id] || 0, m[id]); }); });
+    var cutoff = Date.now() - 90*24*3600*1000;
+    Object.keys(del).forEach(function(id){ if(del[id] < cutoff) delete del[id]; });
+
+    var remoteById = {}; remoteShows.forEach(function(s){ remoteById[s.id] = s; });
+    var seen = {}, merged = [];
+    state.shows.forEach(function(l){
+      seen[l.id] = true;
+      var r = remoteById[l.id];
+      merged.push(r && r.modifiedAt > l.modifiedAt ? r : l);
+    });
+    remoteShows.forEach(function(r){ if(!seen[r.id]) merged.push(r); });
+    merged = merged.filter(function(s){
+      var d = del[s.id];
+      if(d && d >= s.modifiedAt) return false;
+      if(d) delete del[s.id];
+      return true;
+    });
+
+    state.shows = merged;
+    state.deleted = del;
+    state.updatedAt = Math.max(lUpd, rUpd);
+
+    if(rMetaAt > lMetaAt){
+      if(rd.categories || rd.genreOptionsByCategory || rd.genreOptions) state.categories = ensureMovieCategory(buildCategories(rd));
+      if(rd.folders) state.folders = rd.folders;
+      if(rd.nationalityOptions && rd.nationalityOptions.length) state.nationalityOptions = rd.nationalityOptions;
+      if(rd.relationshipTypes && rd.relationshipTypes.length) state.relationshipTypes = rd.relationshipTypes;
+      if(rd.seasonLabels && rd.seasonLabels.length) state.seasonLabels = rd.seasonLabels;
+      state.metaUpdatedAt = rMetaAt;
+    } else if(!state.metaUpdatedAt){
+      state.metaUpdatedAt = lMetaAt;
+    }
+    resetSnapshot();
+
+    var afterFp = fingerprint(state.shows, state.deleted, metaObj(), state.metaUpdatedAt);
+    return { changedLocal: afterFp !== beforeFp, needsPush: afterFp !== remoteFp };
+  }
+
+  function syncNow(isRetry){
+    if(!state.gh) return Promise.resolve({ ok:false, reason:'skip' });
+    if(state.syncing){ state.syncQueued = true; return Promise.resolve({ ok:false, reason:'skip' }); }
     state.syncing = true;
+    function finish(){
+      state.syncing = false;
+      if(state.syncQueued){ state.syncQueued = false; setTimeout(syncAndMaybeRender, 0); }
+    }
     return ghGetFile(state.gh).then(function(remote){
       if(!remote.exists){
         return ghPutFile(state.gh, syncPayload()).then(function(put){
@@ -387,40 +503,28 @@
           return { ok:true, action:'created' };
         });
       }
-      var remoteData = remote.data || {};
-      var remoteShows = remoteData.shows || [];
-      var remoteUpdatedAt = remoteData.updatedAt || 0;
-      var neverSyncedLocally = !state.updatedAt; // fresh device with no editing history yet — not just an empty list
-      var remoteHasData = remoteShows.length > 0;
-
-      if(remoteUpdatedAt > state.updatedAt || (neverSyncedLocally && remoteHasData)){
-        state.shows = remoteShows;
-        state.shows.forEach(migrateShow);
-        state.updatedAt = remoteUpdatedAt;
-        if(remoteData.categories || remoteData.genreOptionsByCategory || remoteData.genreOptions) state.categories = ensureMovieCategory(buildCategories(remoteData));
-        if(remoteData.folders) state.folders = remoteData.folders;
-        if(remoteData.nationalityOptions && remoteData.nationalityOptions.length) state.nationalityOptions = remoteData.nationalityOptions;
-        if(remoteData.relationshipTypes && remoteData.relationshipTypes.length) state.relationshipTypes = remoteData.relationshipTypes;
-        if(remoteData.seasonLabels && remoteData.seasonLabels.length) state.seasonLabels = remoteData.seasonLabels;
+      // Never overwrite a remote file we could not read — that is how data gets wiped.
+      if(remote.data === null) throw new Error('Remote data.json could not be read');
+      var res = applyRemote(remote.data);
+      if(res.changedLocal) persistLocal();
+      if(!res.needsPush){
         state.ghSha = remote.sha;
-        persistLocal();
-        return { ok:true, action:'pulled' };
-      }
-      if(remoteUpdatedAt === state.updatedAt){
-        state.ghSha = remote.sha;
-        return { ok:true, action:'up-to-date' };
+        return { ok:true, action: res.changedLocal ? 'pulled' : 'up-to-date' };
       }
       return ghPutFile(state.gh, syncPayload(), remote.sha).then(function(put){
         state.ghSha = put.content.sha;
-        return { ok:true, action:'pushed' };
+        return { ok:true, action: res.changedLocal ? 'pulled' : 'pushed' };
       });
     }).then(function(result){
-      state.syncing = false;
       state.lastSyncedAt = Date.now();
+      finish();
       return result;
     }).catch(function(err){
-      state.syncing = false;
-      return { ok:false, reason:'error', error:String(err) };
+      finish();
+      var msg = String(err);
+      // Someone else wrote between our read and write — read again and merge once more.
+      if(!isRetry && /GitHub PUT (409|422)/.test(msg)) return syncNow(true);
+      return { ok:false, reason:'error', error:msg };
     });
   }
 
@@ -1297,19 +1401,13 @@
           state.ghSha = put.content.sha;
         });
       }
-      var remoteShows = (remote.data && remote.data.shows) || [];
-      var remoteUpdatedAt = (remote.data && remote.data.updatedAt) || 0;
-      if(remoteShows.length && (!state.updatedAt || remoteUpdatedAt > state.updatedAt)){
-        state.shows = remoteShows;
-        state.shows.forEach(migrateShow);
-        state.updatedAt = remoteUpdatedAt;
-        if(remote.data.categories || remote.data.genreOptionsByCategory || remote.data.genreOptions) state.categories = ensureMovieCategory(buildCategories(remote.data));
-        if(remote.data.folders) state.folders = remote.data.folders;
-        if(remote.data.nationalityOptions && remote.data.nationalityOptions.length) state.nationalityOptions = remote.data.nationalityOptions;
-        if(remote.data.relationshipTypes && remote.data.relationshipTypes.length) state.relationshipTypes = remote.data.relationshipTypes;
-        if(remote.data.seasonLabels && remote.data.seasonLabels.length) state.seasonLabels = remote.data.seasonLabels;
-      }
+      if(remote.data === null) throw new Error('Remote data.json could not be read');
+      var res = applyRemote(remote.data);
+      if(res.changedLocal) persistLocal();
       state.ghSha = remote.sha;
+      if(res.needsPush){
+        return ghPutFile(candidate, syncPayload(), remote.sha).then(function(put){ state.ghSha = put.content.sha; });
+      }
     }).then(function(){
       state.gh = candidate;
       saveGH(candidate);
@@ -1629,7 +1727,9 @@
           state.ghStatus = { type:'info', msg:'Syncing…' };
           render();
           syncNow().then(function(result){
-            if(result.ok){
+            if(!result.ok && result.reason === 'skip'){
+              state.ghStatus = { type:'info', msg:'A sync is already running — it will finish shortly.' };
+            } else if(result.ok){
               var msg = result.action === 'pulled' ? 'Updated from your other device.' :
                         result.action === 'pushed' ? 'Synced.' :
                         result.action === 'created' ? 'Connected and synced.' : 'Already up to date.';
@@ -1896,6 +1996,7 @@
 
   /* ---------------- init ---------------- */
   loadState();
+  resetSnapshot();
   render();
   syncAndMaybeRender();
   setInterval(syncAndMaybeRender, 5*60*1000);
