@@ -59,7 +59,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.9.0';
+  var APP_VERSION = 'v2.9.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -284,39 +284,103 @@
     if(!s.related) s.related = [];
     if(s.seasonLabel === undefined) s.seasonLabel = '';
   }
-  function loadState(){
-    try{
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){
-        var loaded = JSON.parse(raw);
-        state.shows = loaded.shows || [];
-        state.shows.forEach(migrateShow);
-        state.theme = loaded.theme || 'system';
-        state.updatedAt = loaded.updatedAt || 0;
-        state.metaUpdatedAt = loaded.metaUpdatedAt || 0;
-        state.deleted = loaded.deleted || {};
-        state.categories = ensureMovieCategory(buildCategories(loaded));
-        state.folders = (loaded.folders && loaded.folders.length) ? loaded.folders : [];
-        state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
-        state.relationshipTypes = (loaded.relationshipTypes && loaded.relationshipTypes.length) ? loaded.relationshipTypes : RELATIONSHIP_TYPES_DEFAULT.slice();
-        state.seasonLabels = (loaded.seasonLabels && loaded.seasonLabels.length) ? loaded.seasonLabels : SEASON_LABELS_DEFAULT.slice();
-      }
-    }catch(e){ /* start empty */ }
-    if(!state.categories) state.categories = ensureMovieCategory(buildCategories(null));
-    try{
-      var rawGh = localStorage.getItem(GH_KEY);
-      if(rawGh) state.gh = JSON.parse(rawGh);
-    }catch(e){ state.gh = null; }
+  /* ---------------- local storage ----------------
+     The app's data (with all poster/cast photos) has outgrown localStorage's ~5 MB cap on iPhone, which
+     made saves fail silently — so each launch started from an old copy until sync re-downloaded the rest.
+     It now lives in IndexedDB, which has no such limit. localStorage only keeps tiny settings. */
+  var THEME_KEY = 'twatched_theme_v1';
+  var IDB_NAME = 'twatched_db', IDB_STORE = 'kv';
+  var booted = false;          // nothing may be saved or synced until the saved data has been loaded
+  var dbPromise = null;
+  function openDb(){
+    if(dbPromise) return dbPromise;
+    dbPromise = new Promise(function(resolve, reject){
+      try{
+        if(!window.indexedDB){ reject(new Error('no indexedDB')); return; }
+        var req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = function(){ req.result.createObjectStore(IDB_STORE); };
+        req.onsuccess = function(){ resolve(req.result); };
+        req.onerror = function(){ reject(req.error); };
+        req.onblocked = function(){ reject(new Error('indexedDB blocked')); };
+      }catch(e){ reject(e); }
+    });
+    return dbPromise;
   }
+  function idbGet(key){
+    return openDb().then(function(db){
+      return new Promise(function(resolve, reject){
+        var r = db.transaction(IDB_STORE).objectStore(IDB_STORE).get(key);
+        r.onsuccess = function(){ resolve(r.result); };
+        r.onerror = function(){ reject(r.error); };
+      });
+    });
+  }
+  function idbSet(key, val){
+    return openDb().then(function(db){
+      return new Promise(function(resolve, reject){
+        var tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).put(val, key);
+        tx.oncomplete = function(){ resolve(); };
+        tx.onerror = function(){ reject(tx.error); };
+        tx.onabort = function(){ reject(tx.error); };
+      });
+    });
+  }
+  function applyLoaded(loaded){
+    state.shows = loaded.shows || [];
+    state.shows.forEach(migrateShow);
+    state.theme = loaded.theme || 'system';
+    state.updatedAt = loaded.updatedAt || 0;
+    state.metaUpdatedAt = loaded.metaUpdatedAt || 0;
+    state.deleted = loaded.deleted || {};
+    state.categories = ensureMovieCategory(buildCategories(loaded));
+    state.folders = (loaded.folders && loaded.folders.length) ? loaded.folders : [];
+    state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
+    state.relationshipTypes = (loaded.relationshipTypes && loaded.relationshipTypes.length) ? loaded.relationshipTypes : RELATIONSHIP_TYPES_DEFAULT.slice();
+    state.seasonLabels = (loaded.seasonLabels && loaded.seasonLabels.length) ? loaded.seasonLabels : SEASON_LABELS_DEFAULT.slice();
+  }
+  function loadState(done){
+    function legacyLocalStorage(){
+      try{
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if(raw) return JSON.parse(raw);
+      }catch(e){}
+      return null;
+    }
+    function finish(loaded, fromLegacy){
+      try{ if(loaded) applyLoaded(loaded); }catch(e){ /* start empty */ }
+      if(!state.categories) state.categories = ensureMovieCategory(buildCategories(null));
+      try{
+        var rawGh = localStorage.getItem(GH_KEY);
+        if(rawGh) state.gh = JSON.parse(rawGh);
+      }catch(e){ state.gh = null; }
+      done(fromLegacy && !!loaded);
+    }
+    idbGet(STORAGE_KEY).then(function(rec){
+      var loaded = null;
+      if(rec){ try{ loaded = JSON.parse(rec); }catch(e){ loaded = null; } }
+      if(loaded) finish(loaded, false);
+      else finish(legacyLocalStorage(), true);
+    }).catch(function(){ finish(legacyLocalStorage(), false); });
+  }
+  var persistChain = Promise.resolve();
   function persistLocal(){
+    if(!booted) return;   // never save before the stored data has been read, or we'd overwrite it with an empty state
+    var json;
     try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      json = JSON.stringify({
         shows: state.shows, theme: state.theme,
         updatedAt: state.updatedAt, metaUpdatedAt: state.metaUpdatedAt, deleted: state.deleted,
         categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
         relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels
-      }));
-    }catch(e){ /* storage unavailable — app still works in-memory this session */ }
+      });
+    }catch(e){ return; }
+    try{ localStorage.setItem(THEME_KEY, state.theme); }catch(e){}
+    persistChain = persistChain.then(function(){ return idbSet(STORAGE_KEY, json); }).then(function(){
+      try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}   // drop the old, size-limited copy
+    }).catch(function(){
+      try{ localStorage.setItem(STORAGE_KEY, json); }catch(e){ /* storage unavailable — works in memory this session */ }
+    });
   }
   function saveGH(cfg){
     try{ localStorage.setItem(GH_KEY, cfg ? JSON.stringify(cfg) : ''); }catch(e){}
@@ -326,7 +390,7 @@
   // so rendering anyway was pure flicker (most noticeable right at app launch, when this sync
   // fires immediately after the first render).
   function syncAndMaybeRender(){
-    if(!state.gh) return;
+    if(!state.gh || !booted) return;
     syncNow().then(function(result){
       if(result && result.action === 'pulled') render();
     });
@@ -551,6 +615,7 @@
     }).join('') + '</nav>';
   }
   function render(){
+    if(!booted) return;   // saved data not loaded yet — nothing meaningful to draw
     // Set on <html> (not #app) so the theme's --bg/--surface custom properties cascade to
     // <body> too — see the CSS comment on body's background for why that now matters.
     document.documentElement.setAttribute('data-theme', state.theme==='system' ? '' : state.theme);
@@ -1995,11 +2060,18 @@
   document.addEventListener('gesturechange', function(e){ e.preventDefault(); });
 
   /* ---------------- init ---------------- */
-  loadState();
-  resetSnapshot();
-  render();
-  syncAndMaybeRender();
-  setInterval(syncAndMaybeRender, 5*60*1000);
+  try{
+    var earlyTheme = localStorage.getItem(THEME_KEY);
+    if(earlyTheme && earlyTheme !== 'system') document.documentElement.setAttribute('data-theme', earlyTheme);
+  }catch(e){}
+  loadState(function(migrateFromLegacy){
+    booted = true;
+    resetSnapshot();
+    if(migrateFromLegacy) persistLocal();
+    render();
+    syncAndMaybeRender();
+    setInterval(syncAndMaybeRender, 5*60*1000);
+  });
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
