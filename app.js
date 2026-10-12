@@ -59,7 +59,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.9.1';
+  var APP_VERSION = 'v2.9.2';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1304,6 +1304,27 @@
   }
 
   /* ---------------- poster upload ---------------- */
+  // Shrink an uploaded photo for storage. Big shrinks are done in halving steps with high-quality
+  // smoothing: one giant jump (e.g. 4000px -> 900px) makes the browser skip pixels instead of
+  // blending them, which is what produced the jagged, pixelated look.
+  function resizeToCanvas(img, tw, th){
+    var src = img, sw = img.naturalWidth, sh = img.naturalHeight;
+    while(sw / 2 >= tw && sh / 2 >= th){
+      var nw = Math.round(sw / 2), nh = Math.round(sh / 2);
+      var step = document.createElement('canvas');
+      step.width = nw; step.height = nh;
+      var sctx = step.getContext('2d');
+      sctx.imageSmoothingEnabled = true; sctx.imageSmoothingQuality = 'high';
+      sctx.drawImage(src, 0, 0, nw, nh);
+      src = step; sw = nw; sh = nh;
+    }
+    var canvas = document.createElement('canvas');
+    canvas.width = tw; canvas.height = th;
+    var ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, 0, 0, tw, th);
+    return canvas;
+  }
   function readAndDownscaleImage(file, maxDim, quality, callback){
     try{
       var reader = new FileReader();
@@ -1314,11 +1335,7 @@
             var w = img.naturalWidth, h = img.naturalHeight;
             var scale = Math.min(1, maxDim / Math.max(w,h));
             var cw = Math.max(1, Math.round(w*scale)), ch = Math.max(1, Math.round(h*scale));
-            var canvas = document.createElement('canvas');
-            canvas.width = cw; canvas.height = ch;
-            var ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, cw, ch);
-            callback(canvas.toDataURL('image/jpeg', quality));
+            callback(resizeToCanvas(img, cw, ch).toDataURL('image/jpeg', quality));
           }catch(err){ callback(null); }
         };
         img.onerror = function(){ callback(null); };
@@ -1878,7 +1895,7 @@
     if(e.target && e.target.id === 'posterFileInput' && state.formDraft){
       var file = e.target.files && e.target.files[0];
       if(!file) return;
-      readAndDownscaleImage(file, 900, 0.82, function(dataUri){
+      readAndDownscaleImage(file, 1200, 0.82, function(dataUri){
         if(dataUri && state.formDraft){
           state.formDraft.posterImage = dataUri;
           if(!state.formDraft.posterCrops) state.formDraft.posterCrops = defaultCrops();
