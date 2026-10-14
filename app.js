@@ -44,6 +44,7 @@
   var MOVIE_GENRES_DEFAULT = ['Drama','Romance','Comedy','Thriller','Action','Horror','Sci-Fi','Fantasy','Animation','Documentary','Crime','Mystery'];
   var RELATIONSHIP_TYPES_DEFAULT = ['Season 1','Season 2','Season 3','Prequel','Sequel','Spin-off','Standalone movie','Same universe'];
   var NATIONALITY_OPTIONS_DEFAULT = ['Korean','Japanese','Thai','Chinese'];
+  var FEELING_OPTIONS_DEFAULT = ['🥰 Flutter','😂 Funny','😭 Cried','😱 Shocked','😰 Tense','😡 Angry','🔥 Hype','😴 Boring'];
   var SEASON_LABELS_DEFAULT = ['Season 1','Season 2','Season 3','Prequel','Sequel','Spin-off','Standalone movie'];
   var TZ_OPTIONS = [
     { v:'TH', l:'Thailand (ICT)', offset:7 },
@@ -59,7 +60,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.9.2';
+  var APP_VERSION = 'v2.10.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -202,6 +203,9 @@
     nationalityOptions: NATIONALITY_OPTIONS_DEFAULT.slice(),
     relationshipTypes: RELATIONSHIP_TYPES_DEFAULT.slice(),
     seasonLabels: SEASON_LABELS_DEFAULT.slice(),
+    feelingOptions: FEELING_OPTIONS_DEFAULT.slice(),
+    rateSheet: null,         // { showId, ep, isNew, r, e[], animate } while the rate sheet is open
+    scoreBoxOpen: false,
     addingRelatedFor: null, // show id whose "add related" panel is open
     managingList: null,      // null | 'nationality' | 'season'
     managingCategories: false,
@@ -338,6 +342,7 @@
     state.nationalityOptions = (loaded.nationalityOptions && loaded.nationalityOptions.length) ? loaded.nationalityOptions : NATIONALITY_OPTIONS_DEFAULT.slice();
     state.relationshipTypes = (loaded.relationshipTypes && loaded.relationshipTypes.length) ? loaded.relationshipTypes : RELATIONSHIP_TYPES_DEFAULT.slice();
     state.seasonLabels = (loaded.seasonLabels && loaded.seasonLabels.length) ? loaded.seasonLabels : SEASON_LABELS_DEFAULT.slice();
+    state.feelingOptions = (loaded.feelingOptions && loaded.feelingOptions.length) ? loaded.feelingOptions : FEELING_OPTIONS_DEFAULT.slice();
   }
   function loadState(done){
     function legacyLocalStorage(){
@@ -372,7 +377,7 @@
         shows: state.shows, theme: state.theme,
         updatedAt: state.updatedAt, metaUpdatedAt: state.metaUpdatedAt, deleted: state.deleted,
         categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
-        relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels
+        relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels, feelingOptions: state.feelingOptions
       });
     }catch(e){ return; }
     try{ localStorage.setItem(THEME_KEY, state.theme); }catch(e){}
@@ -402,7 +407,7 @@
   function showJson(s){ return JSON.stringify(s, function(k, v){ return k === 'modifiedAt' ? undefined : v; }); }
   function metaObj(){
     return { categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
-             relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels };
+             relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels, feelingOptions: state.feelingOptions };
   }
   function resetSnapshot(){
     snapShows = {};
@@ -429,6 +434,7 @@
   function listByKey(listKey){
     if(listKey === 'genre') return currentGenreList();
     if(listKey === 'season') return state.seasonLabels;
+    if(listKey === 'feeling') return state.feelingOptions;
     return state.nationalityOptions;
   }
 
@@ -479,7 +485,7 @@
   function syncPayload(){
     return { shows: state.shows, updatedAt: state.updatedAt, metaUpdatedAt: state.metaUpdatedAt, deleted: state.deleted,
              categories: state.categories, folders: state.folders, nationalityOptions: state.nationalityOptions,
-             relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels };
+             relationshipTypes: state.relationshipTypes, seasonLabels: state.seasonLabels, feelingOptions: state.feelingOptions };
   }
 
   function stable(v){
@@ -507,7 +513,7 @@
 
     var rMetaAt = rd.metaUpdatedAt || rUpd, lMetaAt = state.metaUpdatedAt || lUpd;
     var remoteMeta = { categories: rd.categories, folders: rd.folders, nationalityOptions: rd.nationalityOptions,
-                       relationshipTypes: rd.relationshipTypes, seasonLabels: rd.seasonLabels };
+                       relationshipTypes: rd.relationshipTypes, seasonLabels: rd.seasonLabels, feelingOptions: rd.feelingOptions };
     var remoteFp = fingerprint(remoteShows, rd.deleted || {}, remoteMeta, rd.metaUpdatedAt || 0);
 
     var beforeFp = fingerprint(state.shows, state.deleted, metaObj(), state.metaUpdatedAt);
@@ -542,6 +548,7 @@
       if(rd.nationalityOptions && rd.nationalityOptions.length) state.nationalityOptions = rd.nationalityOptions;
       if(rd.relationshipTypes && rd.relationshipTypes.length) state.relationshipTypes = rd.relationshipTypes;
       if(rd.seasonLabels && rd.seasonLabels.length) state.seasonLabels = rd.seasonLabels;
+      if(rd.feelingOptions && rd.feelingOptions.length) state.feelingOptions = rd.feelingOptions;
       state.metaUpdatedAt = rMetaAt;
     } else if(!state.metaUpdatedAt){
       state.metaUpdatedAt = lMetaAt;
@@ -644,7 +651,9 @@
       html += '<div class="app-screen app-screen--overlay form-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderAddShowsPanel() + '</div>';
     }
 
+    html += rateSheetHtml();
     appBody.innerHTML = html;
+    if(state.rateSheet) state.rateSheet.animate = false;
 
     // window.scrollY (unlike an individual element's scrollTop) naturally survives this innerHTML
     // replacement on its own, as long as the new content is tall enough — no capture/restore
@@ -926,6 +935,106 @@
       '<div class="star-pick" style="margin:6px 0 0;">' + stars + '</div>' +
       relatedSectionHtml(movie);
   }
+
+  /* ---------------- episode ratings & feelings ---------------- */
+  function feelingParts(opt){
+    var i = opt.indexOf(' ');
+    var first = i > 0 ? opt.slice(0, i) : opt;
+    var isEmoji = /[^\u0000-ɏ]/.test(first) && first.length <= 8;
+    if(!isEmoji) return { emoji:'', label:opt };
+    return { emoji:first, label: i > 0 ? opt.slice(i+1).trim() : '' };
+  }
+  function feelingShort(opt){ var p = feelingParts(opt); return p.emoji || p.label; }
+  function epRating(show, ep){ return (show.epRatings && show.epRatings[String(ep)]) || null; }
+  function epAverage(show){
+    var vals = []; var m = show.epRatings || {};
+    Object.keys(m).forEach(function(k){ if(+k <= show.totalEpisodes && m[k] && m[k].r) vals.push(m[k].r); });
+    return vals.length ? vals.reduce(function(a,b){ return a+b; }, 0) / vals.length : 0;
+  }
+  function feelingCounts(show){
+    var c = {}; var m = show.epRatings || {};
+    Object.keys(m).forEach(function(k){ if(+k > show.totalEpisodes) return; ((m[k] && m[k].e) || []).forEach(function(f){ c[f] = (c[f]||0) + 1; }); });
+    return Object.keys(c).map(function(f){ return [f, c[f]]; }).sort(function(a,b){ return b[1]-a[1]; });
+  }
+  function miniRatingHtml(show, ep){
+    var r = epRating(show, ep);
+    if(!r) return '';
+    var s = (r.r ? '<span class="ep-mini-stars">' + '★'.repeat(r.r) + '</span>' : '') +
+            ((r.e||[]).length ? '<span class="ep-mini-feel">' + r.e.map(feelingShort).join(' ') + '</span>' : '');
+    return s ? '<span class="ep-row__rating">' + s + '</span>' : '';
+  }
+  function seriesScoreBoxHtml(show){
+    var avg = epAverage(show);
+    var own = show.seriesRating || 0;
+    var shown = own || Math.round(avg);
+    var counts = feelingCounts(show);
+    var summary = (own ? '<span class="g">★</span> ' + own + '.0' : (avg ? '<span class="g">★</span> ' + avg.toFixed(1) : 'Not rated yet')) +
+      (counts.length ? ' · ' + feelingShort(counts[0][0]) + ' ×' + counts[0][1] : '');
+    var stars = ''; for(var i=1;i<=5;i++) stars += '<span class="' + (i<=shown?'on':'') + '" data-action="set-series-rating" data-show="' + show.id + '" data-value="' + i + '">★</span>';
+    var bars = ''; var every = show.totalEpisodes > 16 ? 5 : 1;
+    for(var e=1;e<=show.totalEpisodes;e++){
+      var rr = epRating(show, e); var v = rr && rr.r ? rr.r : 0;
+      bars += '<div class="' + (v?'has':'') + '" style="height:' + (v ? v*20 : 7) + '%">' + ((e===1 || e%every===0) ? '<small>' + e + '</small>' : '') + '</div>';
+    }
+    var mx = counts.length ? counts[0][1] : 1;
+    var feel = counts.length ? counts.map(function(c){
+      return '<div class="feel-bar"><span class="t">' + feelingShort(c[0]) + '</span><div class="track"><i style="width:' + (c[1]/mx*100) + '%"></i></div><span class="n">' + c[1] + '</span></div>';
+    }).join('') : '<p class="score-note">No feelings logged yet.</p>';
+    return '<div class="score-box' + (state.scoreBoxOpen ? ' open' : '') + '">' +
+      '<button type="button" class="score-head" data-action="toggle-score-box"><span class="lbl">Your series score</span><span class="sum">' + summary + '</span><span class="chev">' + icon('down') + '</span></button>' +
+      (state.scoreBoxOpen ? '<div class="score-inner">' +
+        '<p class="score-sub">Overall</p><div class="star-pick">' + stars + '</div>' +
+        '<p class="score-note">' + (avg ? 'Episode average ' + avg.toFixed(1) + ' ★ · ' : '') + (own ? 'your own score. Tap the same star again to go back to the average.' : 'tap a star to set your own score') + '</p>' +
+        '<p class="score-sub">Each episode</p><div class="score-graph">' + bars + '</div>' +
+        '<p class="score-sub">Feelings so far</p><div class="feel-bars">' + feel + '</div>' +
+      '</div>' : '') +
+    '</div>';
+  }
+  function openRateSheet(showId, ep, isNew){
+    var show = getShow(showId); if(!show) return;
+    var existing = epRating(show, ep) || {};
+    state.rateSheet = { showId:showId, ep:ep, isNew:isNew, r: existing.r || 0, e: (existing.e || []).slice(), animate:true };
+    if(state.managingList === 'feeling') state.managingList = null;
+    render();
+  }
+  function rateSheetInner(){
+    var rs = state.rateSheet; var show = rs && getShow(rs.showId); if(!show) return '';
+    var stars = ''; for(var i=1;i<=5;i++) stars += '<span class="' + (i<=rs.r?'on':'') + '" data-action="rate-star" data-value="' + i + '">★</span>';
+    var feels = state.feelingOptions.map(function(opt){
+      var p = feelingParts(opt); var on = rs.e.indexOf(opt) !== -1;
+      return '<button type="button" class="feel' + (on?' on':'') + '" data-action="rate-feel" data-value="' + opt.replace(/"/g,'&quot;') + '">' + (p.emoji ? '<b>' + p.emoji + '</b>' : '') + '<span>' + (p.label || '&nbsp;') + '</span></button>';
+    }).join('');
+    var managing = state.managingList === 'feeling';
+    return '<div class="rate-grab"></div>' +
+      '<div class="rate-top"><div class="rate-thumb" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' + posterImgTag(show,'thumbnail') + '</div>' +
+        '<div><h3>Episode ' + rs.ep + (rs.isNew ? ' watched ✓' : '') + '</h3><p>' + show.title + (rs.isNew ? ' · both optional' : ' · edit your rating') + '</p></div></div>' +
+      '<div class="star-pick rate-stars">' + stars + '</div>' +
+      '<p class="score-sub" style="margin-top:14px;">How did it make you feel?</p>' +
+      '<div class="feel-grid">' + feels + '</div>' +
+      '<button type="button" class="link-btn" data-action="toggle-manage-list" data-list="feeling">' + (managing ? 'Done' : 'Edit feelings list') + '</button>' +
+      (managing ? manageListPanel('feeling', state.feelingOptions) : '') +
+      '<div class="rate-actions"><button type="button" class="btn btn-ghost" data-action="rate-close">' + (rs.isNew ? 'Skip' : 'Cancel') + '</button>' +
+        '<button type="button" class="btn btn-primary" data-action="rate-save">Save</button></div>' +
+      ((!rs.isNew && rs.ep === show.watched) ? '<button type="button" class="rate-unwatch" data-action="rate-unwatch">Mark as unwatched</button>' : '');
+  }
+  function rateSheetHtml(){
+    if(!state.rateSheet) return '';
+    return '<div class="rate-scrim" data-action="rate-close"></div>' +
+      '<div class="rate-sheet' + (state.rateSheet.animate ? ' is-opening' : '') + '" id="rateSheet">' + rateSheetInner() + '</div>';
+  }
+  function redrawRateSheet(){
+    var el = document.getElementById('rateSheet');
+    if(el) el.innerHTML = rateSheetInner(); else render();
+  }
+  function closeRateSheet(){ state.rateSheet = null; if(state.managingList === 'feeling') state.managingList = null; render(); }
+  var toastTimer = null;
+  function showToast(msg){
+    var t = document.getElementById('appToast');
+    if(!t){ t = document.createElement('div'); t.id = 'appToast'; t.className = 'app-toast'; document.body.appendChild(t); }
+    t.textContent = msg; t.classList.add('on');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function(){ t.classList.remove('on'); }, 1800);
+  }
+
   function renderShowDetailContent(show, opts){
     if(show.type === 'movie') return renderMovieDetailContent(show, opts);
     opts = opts || {};
@@ -937,9 +1046,9 @@
       var d = computeEpisodeDate(show, i);
       if(i <= show.watched){
         if(i === show.watched){
-          rows += '<li class="ep-row ep-row--watched"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
         } else {
-          rows += '<li class="ep-row ep-row--watched"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
         }
       } else if(i === show.watched+1 && info.aired){
         rows += '<li class="ep-row ep-row--ready"><button class="ep-row__check" data-action="check-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDateTime(d) + '</span></li>';
@@ -972,6 +1081,7 @@
       }).join('') + '</div>' : '') +
       '<div class="progress"><div class="progress__bar" style="width:' + pct + '%"></div></div>' +
       '<p class="progress__label">' + show.watched + ' of ' + show.totalEpisodes + ' watched</p>' +
+      seriesScoreBoxHtml(show) +
       '<ul class="ep-list">' + rows + '</ul>' +
       relatedSectionHtml(show);
   }
@@ -1298,7 +1408,9 @@
       if(show && show.watched < show.totalEpisodes){
         show.watched += 1;
         if(show.watched >= show.totalEpisodes) show.completedAt = Date.now();
-        touch(); render();
+        touch();
+        // The episode is already saved as watched here — the sheet only adds an optional rating.
+        openRateSheet(show.id, show.watched, true);
       }
     }, 260);
   }
@@ -1517,6 +1629,42 @@
           window.scrollTo(0, 0);
           tabScrollMemory[state.activeTab] = 0;
         })(); break;
+      case 'open-rate':
+        openRateSheet(btn.getAttribute('data-show'), parseInt(btn.getAttribute('data-ep'),10), false); break;
+      case 'rate-star':
+        (function(){ if(!state.rateSheet) return; var v = parseInt(btn.getAttribute('data-value'),10); state.rateSheet.r = (state.rateSheet.r === v) ? 0 : v; redrawRateSheet(); })(); break;
+      case 'rate-feel':
+        (function(){ if(!state.rateSheet) return; var v = btn.getAttribute('data-value'); var a = state.rateSheet.e; var i = a.indexOf(v); if(i === -1) a.push(v); else a.splice(i,1); redrawRateSheet(); })(); break;
+      case 'rate-save':
+        (function(){
+          var rs = state.rateSheet; var s = rs && getShow(rs.showId); if(!s) return;
+          if(!s.epRatings) s.epRatings = {};
+          if(rs.r || rs.e.length) s.epRatings[String(rs.ep)] = { r: rs.r, e: rs.e.slice() };
+          else delete s.epRatings[String(rs.ep)];
+          var msg = rs.isNew ? 'Episode ' + rs.ep + ' marked watched' + (rs.r || rs.e.length ? ' · ' + (rs.r ? '★'.repeat(rs.r) + ' ' : '') + rs.e.map(feelingShort).join(' ') : '') : 'Rating saved';
+          state.rateSheet = null; if(state.managingList === 'feeling') state.managingList = null;
+          touch(); render(); showToast(msg);
+        })(); break;
+      case 'rate-close':
+        (function(){ var rs = state.rateSheet; closeRateSheet(); if(rs && rs.isNew) showToast('Episode ' + rs.ep + ' marked watched'); })(); break;
+      case 'rate-unwatch':
+        (function(){
+          var rs = state.rateSheet; var s = rs && getShow(rs.showId);
+          if(s && s.watched > 0 && rs.ep === s.watched){
+            s.watched -= 1;
+            if(s.watched < s.totalEpisodes) s.completedAt = null;
+            state.rateSheet = null; touch(); render(); showToast('Episode ' + rs.ep + ' unmarked');
+          }
+        })(); break;
+      case 'toggle-score-box':
+        state.scoreBoxOpen = !state.scoreBoxOpen; render(); break;
+      case 'set-series-rating':
+        (function(){
+          var s = getShow(btn.getAttribute('data-show')); if(!s) return;
+          var v = parseInt(btn.getAttribute('data-value'),10);
+          s.seriesRating = (s.seriesRating === v) ? 0 : v;
+          touch(); render();
+        })(); break;
       case 'check-episode':
         checkEpisode(btn.getAttribute('data-show')); break;
       case 'uncheck-episode':
@@ -1531,6 +1679,7 @@
       case 'open-detail':
         state.detailShowId = btn.getAttribute('data-show');
         state.confirmDeleteId = null;
+        state.scoreBoxOpen = false;
         if(isWideLayout()){ saveTabScroll(); state.activeTab = 'browse'; render(); restoreTabScroll(); }
         else { openOverlay('detail'); render(); }
         break;

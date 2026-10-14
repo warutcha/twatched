@@ -410,6 +410,63 @@
   .crop-box--avatar{ width:112px; aspect-ratio:1/1; border-radius:50%; }
   .crop-zoom{ width:100%; margin-top:8px; accent-color:var(--teal); }
 
+
+  /* ---------- episode ratings & feelings ---------- */
+  .ep-row--rateable{ cursor:pointer; }
+  .ep-row__rating{ display:flex; gap:6px; align-items:center; margin-top:2px; font-weight:500; }
+  .ep-mini-stars{ color:var(--gold); font-size:11px; letter-spacing:1px; }
+  .ep-mini-feel{ font-size:13px; }
+  .ep-row--watched .ep-row__title{ display:flex; flex-direction:column; }
+
+  .score-box{ background:var(--surface); border:1px solid var(--border); border-radius:16px; margin:2px 0 12px; overflow:hidden; }
+  .score-head{ display:flex; align-items:center; gap:8px; width:100%; padding:12px 14px; background:none; border:none; color:var(--text); font-family:inherit; cursor:pointer; text-align:left; }
+  .score-head .lbl{ flex:1; font-size:13px; font-weight:800; }
+  .score-head .sum{ font-size:12px; font-weight:700; color:var(--text-muted); white-space:nowrap; }
+  .score-head .sum .g{ color:var(--gold); }
+  .score-head .chev{ display:flex; color:var(--text-muted); transition:transform .2s; }
+  .score-head .chev .icon{ width:16px; height:16px; }
+  .score-box.open .chev{ transform:rotate(180deg); }
+  .score-inner{ padding:2px 14px 14px; border-top:1px solid var(--border); }
+  .score-sub{ font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--teal-strong); margin:12px 0 7px; }
+  .score-note{ font-size:11.5px; color:var(--text-muted); margin:6px 0 0; }
+  .score-graph{ display:flex; align-items:flex-end; gap:3px; height:64px; padding-bottom:14px; }
+  .score-graph div{ flex:1; min-width:0; border-radius:4px 4px 0 0; background:var(--border); position:relative; min-height:4px; }
+  .score-graph div.has{ background:var(--gold); }
+  .score-graph small{ position:absolute; bottom:-15px; left:-4px; right:-4px; text-align:center; font-size:9px; color:var(--text-muted); }
+  .feel-bars{ display:flex; flex-direction:column; gap:6px; }
+  .feel-bar{ display:flex; align-items:center; gap:8px; font-size:12px; }
+  .feel-bar .t{ min-width:22px; text-align:center; font-size:15px; }
+  .feel-bar .track{ flex:1; height:8px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+  .feel-bar .track i{ display:block; height:100%; background:var(--teal); }
+  .feel-bar .n{ width:18px; text-align:right; font-weight:700; color:var(--text-muted); }
+
+  .rate-scrim{ position:fixed; top:0; left:0; right:0; bottom:-200px; background:rgba(14,18,31,0.42); z-index:90; animation:rateFade .2s ease; }
+  .rate-sheet{ position:fixed; left:0; right:0; bottom:0; z-index:91; max-width:560px; margin:0 auto; background:var(--surface); border-radius:24px 24px 0 0;
+    padding:10px 18px calc(18px + env(safe-area-inset-bottom,0px)); max-height:88vh; overflow-y:auto; -webkit-overflow-scrolling:touch; box-shadow:0 -8px 30px rgba(14,18,31,0.18); }
+  /* iOS installed-app quirk: fixed elements can stop a little short of the true bottom edge,
+     so paint the sheet's colour on past its bottom to avoid a visible gap. */
+  .rate-sheet::after{ content:""; position:fixed; left:0; right:0; bottom:-200px; height:200px; background:var(--surface); }
+  .rate-sheet.is-opening{ animation:rateUp .28s cubic-bezier(.2,.8,.2,1); }
+  @keyframes rateUp{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
+  @keyframes rateFade{ from{ opacity:0; } to{ opacity:1; } }
+  .rate-grab{ width:38px; height:4px; border-radius:4px; background:var(--border); margin:0 auto 12px; }
+  .rate-top{ display:flex; gap:12px; align-items:center; margin-bottom:12px; }
+  .rate-thumb{ position:relative; width:42px; height:56px; border-radius:9px; overflow:hidden; flex:0 0 auto; }
+  .rate-thumb img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .rate-top h3{ font-family:var(--font-display); font-size:19px; font-weight:600; margin:0; }
+  .rate-top p{ font-size:12px; color:var(--text-muted); margin:2px 0 0; }
+  .rate-stars{ font-size:34px; gap:8px; }
+  .feel-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+  .feel{ border:1px solid var(--border); background:var(--surface); border-radius:13px; padding:8px 2px 7px; text-align:center; cursor:pointer; font-family:inherit; font-size:11px; font-weight:600; color:var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:3px; min-width:0; }
+  .feel b{ font-size:22px; font-weight:400; line-height:1.1; }
+  .feel span{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 2px; }
+  .feel.on{ border-color:var(--teal); background:rgba(22,120,111,0.10); color:var(--teal-strong); }
+  .rate-actions{ display:flex; gap:8px; margin-top:16px; }
+  .rate-actions .btn{ flex:1; }
+  .rate-unwatch{ display:block; margin:12px auto 0; background:none; border:none; color:var(--danger); font-family:inherit; font-size:12.5px; font-weight:700; cursor:pointer; }
+  .app-toast{ position:fixed; left:50%; top:calc(12px + env(safe-area-inset-top,0px)); transform:translate(-50%,-20px); opacity:0; z-index:95; background:var(--text); color:var(--bg);
+    font-size:13px; font-weight:600; padding:10px 15px; border-radius:12px; transition:all .25s; pointer-events:none; white-space:nowrap; max-width:92vw; overflow:hidden; text-overflow:ellipsis; }
+  .app-toast.on{ opacity:1; transform:translate(-50%,0); }
 </style>
 </head>
 <body>
@@ -421,6 +478,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=212"></script>
+<script src="app.js?v=213"></script>
 </body>
 </html>
