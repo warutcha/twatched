@@ -4,6 +4,7 @@
 
   /* ---------------- icons ---------------- */
   var ICON_PATHS = {
+    chart: '<path d="M4 20h16"/><path d="M7 16v-5"/><path d="M12 16V7"/><path d="M17 16v-8"/>',
     home: '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9"/>',
     grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
     settings: '<line x1="4" y1="7" x2="20" y2="7"/><circle cx="15" cy="7" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="13" cy="17" r="2"/>',
@@ -60,7 +61,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.10.0';
+  var APP_VERSION = 'v2.11.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -206,6 +207,8 @@
     feelingOptions: FEELING_OPTIONS_DEFAULT.slice(),
     rateSheet: null,         // { showId, ep, isNew, r, e[], animate } while the rate sheet is open
     scoreBoxOpen: false,
+    statsMode: 'month',      // week | month | year | all
+    statsAnchor: Date.now(),
     addingRelatedFor: null, // show id whose "add related" panel is open
     managingList: null,      // null | 'nationality' | 'season'
     managingCategories: false,
@@ -600,6 +603,356 @@
   }
 
 
+
+  /* ================================================================
+     STATS TAB + WRAP
+     Read-only: nothing here writes to state.shows or saves anything.
+     It only reads shows/movies and the per-episode watch log.
+     ================================================================ */
+  var ST_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var ST_MONL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var ST_DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var ST_DOWL = ['Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'];
+  var ST_STATUS = [['Finished','--st-s4'],['Caught up','--st-s3'],['In progress','--st-s2'],['Not started','--st-s1']];
+  function stEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function stHm(m){ m = Math.round(m); var h = Math.floor(m/60), mm = m % 60; return h ? h + 'h' + (mm ? ' ' + mm + 'm' : '') : mm + 'm'; }
+  function stAddDays(d, n){ var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function stMonday(d){ var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+  function stValid(d){ return d instanceof Date && !isNaN(d.getTime()); }
+
+  // Every watched episode / movie as one entry. Episodes ticked since v2.11 carry their real tick
+  // time (show.watchLog); older ones fall back to the episode's air date and are marked estimated.
+  function statsLog(){
+    var out = [];
+    state.shows.forEach(function(s){
+      if(s.type === 'movie'){
+        if(!s.watchedDate) return;
+        var md = new Date(s.watchedDate + 'T20:00:00');
+        if(stValid(md)) out.push({ s:s, ep:0, ts:md, mins:s.runtimeMinutes || 0, est:false, hasTime:false });
+        return;
+      }
+      var upTo = Math.min(s.watched || 0, s.totalEpisodes || 0);
+      for(var e = 1; e <= upTo; e++){
+        var logged = s.watchLog && s.watchLog[String(e)];
+        var ts = logged ? new Date(logged) : computeEpisodeDate(s, e);
+        if(!stValid(ts)) continue;
+        out.push({ s:s, ep:e, ts:ts, mins:s.episodeMinutes || 0, est:!logged, hasTime:!!logged });
+      }
+    });
+    out.sort(function(a,b){ return a.ts - b.ts; });
+    return out;
+  }
+  function statsCategories(){
+    var names = state.categories.filter(function(c){ return c.id !== 'movie'; }).map(function(c){ return c.name; });
+    var list = names.slice(0, 7); if(names.length > 7) list.push('Other');
+    list.push('Movie');
+    return list;
+  }
+  function statsCatOf(s){
+    if(s.type === 'movie') return 'Movie';
+    var cats = statsCategories(); var n = (getCategory(s.category) || {}).name;
+    return (n && cats.indexOf(n) !== -1) ? n : 'Other';
+  }
+  function statsCatColor(name){
+    var i = statsCategories().indexOf(name);
+    return 'var(--st-c' + (Math.max(0,i) % 8 + 1) + ')';
+  }
+  function statsCatLabel(name){ return name === 'Movie' ? 'Movies' : name; }
+
+  function statsRange(){
+    var a = new Date(state.statsAnchor), mode = state.statsMode;
+    if(mode === 'week'){ var s = stMonday(a); return { s:s, e:stAddDays(s,7) }; }
+    if(mode === 'month') return { s:new Date(a.getFullYear(), a.getMonth(), 1), e:new Date(a.getFullYear(), a.getMonth()+1, 1) };
+    if(mode === 'year') return { s:new Date(a.getFullYear(),0,1), e:new Date(a.getFullYear()+1,0,1) };
+    var log = statsLog(); var first = log.length ? log[0].ts : new Date();
+    return { s:new Date(first.getFullYear(), first.getMonth(), 1), e:stAddDays(new Date(), 1) };
+  }
+  function statsShortLabel(){
+    var a = new Date(state.statsAnchor);
+    if(state.statsMode === 'week'){ var s = stMonday(a); return 'week of ' + s.getDate() + ' ' + ST_MON[s.getMonth()]; }
+    if(state.statsMode === 'month') return ST_MONL[a.getMonth()];
+    if(state.statsMode === 'year') return String(a.getFullYear());
+    return 'all time';
+  }
+  function statsPeriodLabel(){
+    var r = statsRange(), a = new Date(state.statsAnchor);
+    if(state.statsMode === 'week'){ var e = stAddDays(r.s,6); return 'Mon ' + r.s.getDate() + ' ' + ST_MON[r.s.getMonth()] + ' – Sun ' + e.getDate() + ' ' + ST_MON[e.getMonth()] + ' <small>' + e.getFullYear() + '</small>'; }
+    if(state.statsMode === 'month') return ST_MONL[a.getMonth()] + ' <small>' + a.getFullYear() + '</small>';
+    if(state.statsMode === 'year') return String(a.getFullYear());
+    return 'Since ' + ST_MON[r.s.getMonth()] + ' ' + r.s.getFullYear();
+  }
+  function statsCanStep(dir, log){
+    if(state.statsMode === 'all') return false;
+    var r = statsRange();
+    if(dir > 0) return r.e <= new Date();
+    return log.length ? r.s > log[0].ts : false;
+  }
+
+  function statsCompute(){
+    var log = statsLog(), r = statsRange(), now = new Date();
+    var es = log.filter(function(x){ return x.ts >= r.s && x.ts < r.e; });
+    var st = { log:log, entries:es, mins:0, estMins:0, eps:0, movies:0, noLen:0, titles:{}, byCat:{}, byGenre:{}, genreIds:{}, byNat:{}, byDow:[0,0,0,0,0,0,0], byHour:{}, finished:[] };
+    es.forEach(function(x){
+      var s = x.s, id = s.id;
+      st.mins += x.mins; if(x.est) st.estMins += x.mins;
+      if(x.ep) st.eps++; else st.movies++;
+      if(!x.mins) st.noLen++;
+      var t = st.titles[id] || (st.titles[id] = { s:s, mins:0, eps:0 }); t.mins += x.mins; if(x.ep) t.eps++;
+      var c = statsCatOf(s); st.byCat[c] = (st.byCat[c] || 0) + x.mins;
+      (s.genres || []).forEach(function(g){ st.byGenre[g] = (st.byGenre[g] || 0) + x.mins; var ids = st.genreIds[g] || (st.genreIds[g] = []); if(ids.indexOf(id) === -1) ids.push(id); });
+      if(s.nationality) st.byNat[s.nationality] = (st.byNat[s.nationality] || 0) + x.mins;
+      if(!x.est) st.byDow[(x.ts.getDay() + 6) % 7] += x.mins;
+      if(x.hasTime){ var h = x.ts.getHours(); st.byHour[h] = (st.byHour[h] || 0) + x.mins; }
+      var done = s.type === 'movie' || (x.ep === s.totalEpisodes && s.watched >= s.totalEpisodes);
+      if(done && st.finished.indexOf(id) === -1) st.finished.push(id);
+    });
+    // where each title stood at the end of the period
+    var end = r.e < now ? r.e : now; st.status = {};
+    state.shows.forEach(function(s){
+      var seen = 0; log.forEach(function(x){ if(x.s === s && x.ts < end) seen++; });
+      var cat = statsCatOf(s); var o;
+      if(s.type === 'movie'){ if(seen){ o = st.status[cat] || (st.status[cat] = {}); o['Finished'] = (o['Finished'] || 0) + 1; } return; }
+      var added = parseInt(String(s.id).replace(/^\D+/, ''), 10);
+      if(!seen && added && added > 1e12 && added >= end.getTime()) return;   // not in your list yet
+      var aired = 0;
+      for(var e = 1; e <= s.totalEpisodes; e++){ var d = computeEpisodeDate(s, e); if(stValid(d) && d < end) aired++; else break; }
+      var k = seen === 0 ? 'Not started' : (seen >= s.totalEpisodes ? 'Finished' : (seen >= aired ? 'Caught up' : 'In progress'));
+      o = st.status[cat] || (st.status[cat] = {}); o[k] = (o[k] || 0) + 1;
+    });
+    st.ranked = Object.keys(st.titles).map(function(k){ return st.titles[k]; }).sort(function(a,b){ return b.mins - a.mins || b.eps - a.eps; });
+    st.genres = Object.keys(st.byGenre).map(function(g){
+      return { name:g, m:st.byGenre[g], ids:st.genreIds[g].slice().sort(function(a,b){ return st.titles[b].mins - st.titles[a].mins; }) };
+    }).sort(function(a,b){ return b.m - a.m; });
+    return st;
+  }
+
+  function stPoster(s, extra, style){
+    var img = s.posterImage ? '<img src="' + s.posterImage + '" alt="" draggable="false">' : '<span class="st-ini">' + initialOf(s) + '</span>';
+    return '<div class="st-pst" style="' + (style || '') + (s.posterImage ? '' : posterStyle(s)) + '">' + img + (extra || '') + '</div>';
+  }
+  function stRoundTop(x,y,w,h,r){ r = Math.min(r,h); return 'M'+x+','+(y+h)+'V'+(y+r)+'Q'+x+','+y+' '+(x+r)+','+y+'H'+(x+w-r)+'Q'+(x+w)+','+y+' '+(x+w)+','+(y+r)+'V'+(y+h)+'Z'; }
+  function stTicks(maxH){ var sH = maxH<=2?0.5: maxH<=5?1: maxH<=12?2: maxH<=30?5: maxH<=60?10: maxH<=150?25:50; var t=[0]; while(t[t.length-1] < maxH) t.push(+(t[t.length-1]+sH).toFixed(1)); return t; }
+
+  function renderStats(){
+    var st = statsCompute();
+    var periodHtml = '<div class="st-seg">' + [['week','Week'],['month','Month'],['year','Year'],['all','All time']].map(function(m){
+        return '<button type="button" class="' + (state.statsMode === m[0] ? 'on' : '') + '" data-action="stats-mode" data-value="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="st-stepper">' + (state.statsMode === 'all' ? '<div class="st-label st-label--static">' + statsPeriodLabel() + '</div>' :
+        '<button type="button" class="st-arrow" data-action="stats-step" data-value="-1" aria-label="Previous"' + (statsCanStep(-1, st.log) ? '' : ' disabled') + '>' + icon('left') + '</button>' +
+        '<button type="button" class="st-label" data-action="stats-pick">' + statsPeriodLabel() + ' ▾</button>' +
+        '<button type="button" class="st-arrow" data-action="stats-step" data-value="1" aria-label="Next"' + (statsCanStep(1, st.log) ? '' : ' disabled') + '>' + icon('right') + '</button>') + '</div>';
+    var out = '<div class="screen-pad"><h1 class="screen-title">Stats</h1><p class="screen-kicker">What you watched, when, and what you like.</p>' + periodHtml;
+    if(!st.log.length){
+      return out + '<div class="st-card st-empty">Nothing watched yet. Tick an episode or log a movie and your stats start here.</div></div>';
+    }
+    if(!st.entries.length){
+      return out + '<div class="st-card st-empty">Nothing watched in ' + stEsc(statsShortLabel()) + '.</div>' + stStatusCard(st) + '</div>';
+    }
+    var top3 = st.ranked.slice(0,3);
+    out += '<button type="button" class="st-play" data-action="stats-play"><span class="st-play-ic">▶</span><span class="st-play-tx"><b>Play your ' + stEsc(state.statsMode === 'all' ? 'all-time' : statsShortLabel()) + ' wrap</b><span>6 cards · about 40 seconds</span></span>' +
+      '<span class="st-peek">' + top3.map(function(t){ return stPoster(t.s); }).join('') + '</span></button>';
+    out += '<div class="st-kpis"><div class="st-kpi st-kpi--hero"><div class="v">' + Math.floor(st.mins/60) + '<small> h </small>' + Math.round(st.mins % 60) + '<small> m</small></div><div class="l">Time watched · ' + stEsc(statsShortLabel()) + '</div>' +
+        (st.estMins ? '<span class="st-est">≈ ' + stHm(st.estMins) + ' estimated from air dates</span>' : '') + '</div>' +
+      '<div class="st-kpi"><div class="v">' + st.eps + '</div><div class="l">Episodes</div></div>' +
+      '<div class="st-kpi"><div class="v">' + st.movies + '</div><div class="l">Movies</div></div>' +
+      '<div class="st-kpi"><div class="v">' + st.ranked.length + '</div><div class="l">Titles watched</div></div>' +
+      '<div class="st-kpi"><div class="v">' + st.finished.length + '</div><div class="l">Finished</div></div></div>';
+    out += (state.statsMode === 'all' ? stHeatmapCard(st) : stActivityCard(st)) + stStatusCard(st) + stTypeCard(st) + stGenreCard(st) + stTopCard(st) + stHabitCard(st);
+    if(st.noLen) out += '<p class="st-note">' + st.noLen + ' watched item' + (st.noLen > 1 ? 's have' : ' has') + ' no length set, so ' + (st.noLen > 1 ? 'they count' : 'it counts') + ' toward episodes and movies but adds no time.</p>';
+    return out + '</div>';
+  }
+  var ST_LEGEND_EST = '<div class="st-legend"><span><i style="background:var(--st-bar)"></i>Logged when you ticked</span><span><i style="background:repeating-linear-gradient(45deg,var(--st-bar) 0 2px,transparent 2px 4px)"></i>Estimated (air date)</span></div>';
+  function stActivityCard(st){
+    var r = statsRange(), b = [], byDay = state.statsMode === 'week' || state.statsMode === 'month';
+    if(byDay){ for(var d = new Date(r.s); d < r.e; d = stAddDays(d,1)) b.push({ s:new Date(d), e:stAddDays(d,1), lab: state.statsMode === 'week' ? ST_DOW[(d.getDay()+6)%7] : String(d.getDate()), long: ST_DOW[(d.getDay()+6)%7] + ' ' + d.getDate() + ' ' + ST_MON[d.getMonth()] }); }
+    else { for(var m = new Date(r.s); m < r.e; m = new Date(m.getFullYear(), m.getMonth()+1, 1)) b.push({ s:new Date(m), e:new Date(m.getFullYear(), m.getMonth()+1, 1), lab: ST_MON[m.getMonth()].charAt(0), long: ST_MONL[m.getMonth()] + ' ' + m.getFullYear() }); }
+    b.forEach(function(x){ x.mins = 0; x.est = 0; x.n = 0; st.entries.forEach(function(e){ if(e.ts >= x.s && e.ts < x.e){ x.mins += e.mins; x.n++; if(e.est) x.est += e.mins; } }); });
+    var max = Math.max.apply(null, b.map(function(x){ return x.mins; })) || 1;
+    var W = 340, H = 132, pl = 28, pb = 18, pt = 8, cw = (W-pl)/b.length, bw = Math.max(3, Math.min(24, cw-2)), plotH = H-pb-pt, base = H-pb;
+    var ticks = stTicks(max/60), top = ticks[ticks.length-1]*60 || 1, every = b.length > 16 ? 5 : 1;
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Hours watched per ' + (byDay ? 'day' : 'month') + '">' + stHatchDefs();
+    ticks.forEach(function(t){ var y = pt + plotH*(1 - t*60/top); svg += '<line x1="' + pl + '" x2="' + W + '" y1="' + y + '" y2="' + y + '" style="stroke:var(--st-grid)"/><text x="' + (pl-6) + '" y="' + (y+3.5) + '" font-size="9.5" text-anchor="end" style="fill:var(--text-muted)">' + t + 'h</text>'; });
+    b.forEach(function(x, i){
+      var cx = pl + cw*i + cw/2, hh = plotH*(x.mins/top), y = base - hh, he = plotH*(x.est/top);
+      if(x.mins){
+        var dpath = stRoundTop(cx-bw/2, y, bw, hh, Math.min(4, bw/2));
+        svg += '<path d="' + dpath + '" style="fill:var(--st-bar)"/>';
+        if(x.est){ var ep = x.est >= x.mins ? dpath : 'M'+(cx-bw/2)+','+base+'V'+(base-he+1)+'H'+(cx+bw/2)+'V'+base+'Z'; svg += '<path d="' + ep + '" style="fill:var(--surface)"/><path d="' + ep + '" fill="url(#stHatch)"/>'; }
+      }
+      svg += '<rect x="' + (pl+cw*i) + '" y="' + pt + '" width="' + cw + '" height="' + plotH + '" fill="transparent" data-tip="' + stEsc(x.long + ' · ' + (x.mins ? stHm(x.mins) + ' · ' + x.n + ' watched' + (x.est ? ' · ' + stHm(x.est) + ' estimated' : '') : 'nothing watched')) + '"/>';
+      if(i === 0 || (i+1) % every === 0 || state.statsMode !== 'month') svg += '<text x="' + cx + '" y="' + (H-4) + '" font-size="9.5" text-anchor="middle" style="fill:var(--text-muted)">' + x.lab + '</text>';
+    });
+    svg += '</svg>';
+    var best = b.slice().sort(function(a,c){ return c.mins - a.mins; })[0];
+    return '<div class="st-card"><h3>Watching activity</h3><p class="st-sub">Hours per ' + (byDay ? 'day' : 'month') + (best && best.mins ? ' · busiest: ' + best.long + ' (' + stHm(best.mins) + ')' : '') + '</p>' + (st.estMins ? ST_LEGEND_EST : '') + svg + '</div>';
+  }
+  function stHatchDefs(){
+    return '<defs><pattern id="stHatch" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)"><rect width="5" height="5" style="fill:var(--st-bar);opacity:.28"/><line x1="0" y1="0" x2="0" y2="5" style="stroke:var(--st-bar);stroke-width:2.4"/></pattern></defs>';
+  }
+  function stHeatmapCard(st){
+    var log = st.log, months = {}, maxM = 1, years = [], now = new Date();
+    log.forEach(function(x){ var k = x.ts.getFullYear() + '-' + x.ts.getMonth(); var b = months[k] || (months[k] = { mins:0, est:0, n:0 }); b.mins += x.mins; b.n++; if(x.est) b.est += x.mins; if(b.mins > maxM) maxM = b.mins; });
+    for(var y = log[0].ts.getFullYear(); y <= now.getFullYear(); y++) years.push(y);
+    var steps = ['--st-q1','--st-q2','--st-q3','--st-q4','--st-q5'], busy = null;
+    Object.keys(months).forEach(function(k){ if(!busy || months[k].mins > months[busy].mins) busy = k; });
+    var h = '<div class="st-hm"><span></span>' + ST_MON.map(function(m){ return '<span class="ml">' + m.charAt(0) + '</span>'; }).join('') + '<span class="ml" style="text-align:right">Total</span>';
+    years.slice().reverse().forEach(function(y){
+      var tot = 0; h += '<span class="yl">' + y + '</span>';
+      for(var k = 0; k < 12; k++){
+        var start = new Date(y, k, 1), b = months[y + '-' + k];
+        if(start > now){ h += '<span class="c future"></span>'; continue; }
+        if(!b){ h += '<button type="button" class="c" data-action="stats-heat" data-value="' + y + '-' + k + '" data-tip="' + ST_MONL[k] + ' ' + y + ' · nothing watched"></button>'; continue; }
+        tot += b.mins; var L = Math.min(4, Math.floor(b.mins/maxM*5));
+        h += '<button type="button" class="c' + (b.est >= b.mins/2 && b.mins ? ' est' : '') + '" data-action="stats-heat" data-value="' + y + '-' + k + '" style="background:var(' + steps[L] + ');color:' + (L >= 2 ? '#fff' : 'var(--text)') + '" data-tip="' + stEsc(ST_MONL[k] + ' ' + y + ' · ' + stHm(b.mins) + (b.est ? ' · ' + stHm(b.est) + ' estimated' : '') + ' · tap to open') + '">' + (b.mins >= 300 ? '<b>' + Math.round(b.mins/60) + '</b>' : '') + '</button>';
+      }
+      h += '<span class="yt">' + Math.round(tot/60) + 'h</span>';
+    });
+    var bp = busy.split('-');
+    h += '</div><div class="st-scale">0h <i style="background:var(--st-q0)"></i>' + steps.map(function(s){ return '<i style="background:var(' + s + ')"></i>'; }).join('') + ' ' + Math.round(maxM/60) + 'h · striped = mostly estimated</div>';
+    return '<div class="st-card"><h3>Watching activity</h3><p class="st-sub">Hours per month · busiest: ' + ST_MONL[+bp[1]] + ' ' + bp[0] + ' (' + stHm(months[busy].mins) + '). Tap a month to open it.</p>' + h + '</div>';
+  }
+  function stStatusCard(st){
+    var cats = statsCategories().filter(function(c){ return st.status[c]; }); if(!cats.length) return '';
+    var max = Math.max.apply(null, cats.map(function(c){ return Object.keys(st.status[c]).reduce(function(a,k){ return a + st.status[c][k]; }, 0); }));
+    var h = '<div class="st-card"><h3>Your list by status</h3><p class="st-sub">Where each title stood at the end of ' + stEsc(statsShortLabel()) + '</p><div class="st-legend">' +
+      ST_STATUS.map(function(s){ return '<span><i style="background:var(' + s[1] + ')"></i>' + s[0] + '</span>'; }).join('') + '</div>';
+    cats.forEach(function(c){
+      var o = st.status[c], tot = 0; ST_STATUS.forEach(function(s){ tot += o[s[0]] || 0; });
+      var parts = ST_STATUS.filter(function(s){ return o[s[0]]; });
+      h += '<div class="st-row"><span class="nm">' + stEsc(statsCatLabel(c)) + '</span><div class="st-track" style="width:' + (tot/max*100) + '%">' +
+        parts.map(function(s){ return '<span style="flex:' + o[s[0]] + ';background:var(' + s[1] + ')" data-tip="' + stEsc(statsCatLabel(c) + ' · ' + s[0] + ': ' + o[s[0]]) + '"></span>'; }).join('') +
+        '</div><span class="val">' + tot + ' title' + (tot === 1 ? '' : 's') + '</span></div><p class="st-note st-note--row">' + parts.map(function(s){ return s[0] + ' ' + o[s[0]]; }).join(' · ') + '</p>';
+    });
+    return h + '<p class="st-note">“Caught up” means you have seen every episode that has aired so far.</p></div>';
+  }
+  function stTypeCard(st){
+    var cats = statsCategories().filter(function(c){ return st.byCat[c]; }), tot = st.mins || 1;
+    if(!cats.length || !st.mins) return '';
+    return '<div class="st-card"><h3>Time by type</h3><p class="st-sub">Share of your ' + stHm(st.mins) + '</p><div class="st-track st-track--big">' +
+      cats.map(function(c){ return '<span style="flex:' + st.byCat[c] + ';background:' + statsCatColor(c) + '" data-tip="' + stEsc(statsCatLabel(c) + ' · ' + stHm(st.byCat[c]) + ' (' + Math.round(st.byCat[c]/tot*100) + '%)') + '"></span>'; }).join('') + '</div>' +
+      '<ul class="st-list">' + cats.map(function(c){ return '<li><span class="st-dot" style="background:' + statsCatColor(c) + '"></span><div class="st-li-main"><b>' + stEsc(statsCatLabel(c)) + '</b></div><span class="st-li-v">' + stHm(st.byCat[c]) + ' · ' + Math.round(st.byCat[c]/tot*100) + '%</span></li>'; }).join('') + '</ul></div>';
+  }
+  function stGenreCard(st){
+    if(!st.genres.length || !st.mins) return '';
+    var rows = st.genres.slice(0,8).map(function(g){ return [g.name, g.m]; }), other = st.genres.slice(8).reduce(function(a,g){ return a + g.m; }, 0);
+    if(other) rows.push(['Other (' + (st.genres.length - 8) + ')', other]);
+    var max = rows[0][1] || 1;
+    return '<div class="st-card"><h3>Genres</h3><p class="st-sub">Hours on titles with each genre. A title with 3 genres counts toward all 3.</p>' +
+      rows.map(function(x){ return '<div class="st-row"><span class="nm">' + stEsc(x[0]) + '</span><div><div class="st-gbar" style="width:' + Math.max(2, x[1]/max*100) + '%" data-tip="' + stEsc(x[0] + ' · ' + stHm(x[1])) + '"></div></div><span class="val">' + stHm(x[1]) + '</span></div>'; }).join('') + '</div>';
+  }
+  function stTopCard(st){
+    return '<div class="st-card"><h3>Top titles</h3><p class="st-sub">By time watched</p><ul class="st-list">' + st.ranked.slice(0,5).map(function(t, i){
+      var s = t.s;
+      return '<li class="st-top" data-action="open-detail" data-show="' + s.id + '"><span class="st-rank">' + (i+1) + '</span>' + stPoster(s) + '<div class="st-li-main"><b>' + stEsc(s.title) + '</b><span><span class="st-dot" style="display:inline-block;background:' + statsCatColor(statsCatOf(s)) + ';margin-right:4px"></span>' +
+        (s.type === 'movie' ? 'Movie' : t.eps + ' episode' + (t.eps === 1 ? '' : 's')) + (st.finished.indexOf(s.id) !== -1 ? ' · finished' : '') + '</span></div><span class="st-li-v">' + stHm(t.mins) + '</span></li>';
+    }).join('') + '</ul></div>';
+  }
+  function stHabitCard(st){
+    var nat = Object.keys(st.byNat).map(function(k){ return [k, st.byNat[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+    var natHtml = (nat.length && st.mins) ? '<p class="st-sub" style="margin:14px 0 6px;"><b style="color:var(--text)">Nationality</b></p><ul class="st-list">' + nat.map(function(x){ return '<li><div class="st-li-main"><b>' + stEsc(x[0]) + '</b></div><span class="st-li-v">' + stHm(x[1]) + ' · ' + Math.round(x[1]/st.mins*100) + '%</span></li>'; }).join('') + '</ul>' : '';
+    var logged = st.byDow.reduce(function(a,b){ return a+b; }, 0);
+    if(!logged) return '<div class="st-card"><h3>Your habits</h3><p class="st-note" style="margin-top:4px">Day-of-week habits use episodes ticked from now on. Older ones only have an estimated air date.</p>' + natHtml + '</div>';
+    var max = Math.max.apply(null, st.byDow), bi = st.byDow.indexOf(max);
+    var hrs = Object.keys(st.byHour).map(function(k){ return [+k, st.byHour[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+    var hourTxt = hrs.length ? ', usually around ' + (hrs[0][0] % 12 || 12) + (hrs[0][0] >= 12 ? ' PM' : ' AM') : '';
+    var W = 300, H = 70, cw = W/7, svg = '<svg viewBox="0 0 ' + W + ' ' + (H+16) + '" width="100%">';
+    st.byDow.forEach(function(v, i){
+      var hh = H*(v/max), x = cw*i + cw/2 - 9;
+      if(v) svg += '<path d="' + stRoundTop(x, H-hh, 18, hh, 4) + '" style="fill:var(--st-bar);opacity:' + (i === bi ? 1 : .45) + '"/>';
+      svg += '<rect x="' + (cw*i) + '" y="0" width="' + cw + '" height="' + H + '" fill="transparent" data-tip="' + ST_DOW[i] + ' · ' + stHm(v) + '"/><text x="' + (cw*i + cw/2) + '" y="' + (H+13) + '" font-size="10" text-anchor="middle" style="fill:var(--text-muted)" font-weight="' + (i === bi ? 800 : 500) + '">' + ST_DOW[i] + '</text>';
+    });
+    svg += '</svg>';
+    return '<div class="st-card"><h3>Your habits</h3><p class="st-sub">You watch most on <b>' + ST_DOWL[bi] + '</b>' + hourTxt + (st.estMins ? ' (ticked episodes only)' : '') + '</p>' + svg + natHtml + '</div>';
+  }
+
+  /* ---------- layer outside #appBody: picker sheet, wrap player, tooltip ----------
+     Kept out of appBody on purpose: a background sync or any render() replaces appBody's HTML,
+     and that must never close or reset an open wrap or picker. */
+  var stLayer = null, stStory = { i:0, cards:[], timer:null }, stPickYear = null, stPickMonth = null;
+  function stEnsureLayer(){
+    if(stLayer) return stLayer;
+    stLayer = document.createElement('div'); stLayer.id = 'statsLayer';
+    stLayer.innerHTML = '<div class="st-scrim" id="stScrim" data-action="stats-close-sheet"></div><div class="st-sheet" id="stSheet"></div><div class="st-story" id="stStory"></div><div class="st-tip" id="stTip"></div>';
+    document.body.appendChild(stLayer);
+    return stLayer;
+  }
+  function stOpenSheet(h){ stEnsureLayer(); document.getElementById('stSheet').innerHTML = '<div class="st-grab"></div>' + h; document.getElementById('stSheet').classList.add('on'); document.getElementById('stScrim').classList.add('on'); }
+  function stCloseSheet(){ if(!stLayer) return; document.getElementById('stSheet').classList.remove('on'); document.getElementById('stScrim').classList.remove('on'); }
+  function stMinsIn(log, s, e){ return log.filter(function(x){ return x.ts >= s && x.ts < e; }).reduce(function(a,x){ return a + x.mins; }, 0); }
+  function stOpenPicker(){
+    var log = statsLog(); if(!log.length) return;
+    var now = new Date(), ys = []; for(var y = log[0].ts.getFullYear(); y <= now.getFullYear(); y++) ys.push(y);
+    var anchor = new Date(state.statsAnchor), h;
+    if(state.statsMode === 'year'){
+      h = '<h4>Pick a year</h4><div class="st-pick-grid">' + ys.map(function(y){ return '<button type="button" class="st-pill' + (y === anchor.getFullYear() ? ' on' : '') + '" data-action="stats-pick-y" data-value="' + y + '">' + y + '<small>' + stHm(stMinsIn(log, new Date(y,0,1), new Date(y+1,0,1))) + '</small></button>'; }).join('') + '</div>';
+    } else {
+      h = '<h4>Pick a ' + (state.statsMode === 'week' ? 'week' : 'month') + '</h4><div class="st-pick-years">' + ys.map(function(y){ return '<button type="button" class="st-pill' + (y === stPickYear ? ' on' : '') + '" data-action="stats-pick-year" data-value="' + y + '">' + y + '</button>'; }).join('') + '</div>';
+      if(state.statsMode === 'month'){
+        h += '<div class="st-pick-grid">' + ST_MON.map(function(m, i){ var s = new Date(stPickYear, i, 1), mm = stMinsIn(log, s, new Date(stPickYear, i+1, 1));
+          return '<button type="button" class="st-pill' + (stPickYear === anchor.getFullYear() && i === anchor.getMonth() ? ' on' : '') + '" data-action="stats-pick-month" data-value="' + i + '"' + (s > now ? ' disabled' : '') + '>' + m + '<small>' + (mm ? stHm(mm).replace(/ \d+m$/, '') : '—') + '</small></button>'; }).join('') + '</div>';
+      } else {
+        var pm = stPickMonth != null ? stPickMonth : (stPickYear === anchor.getFullYear() ? anchor.getMonth() : 0);
+        h += '<div class="st-pick-grid" style="margin-bottom:12px">' + ST_MON.map(function(m, i){ return '<button type="button" class="st-pill' + (i === pm ? ' on' : '') + '" data-action="stats-pick-wmonth" data-value="' + i + '"' + (new Date(stPickYear, i, 1) > now ? ' disabled' : '') + '>' + m + '</button>'; }).join('') + '</div><div class="st-weeks">';
+        var s = stMonday(new Date(stPickYear, pm, 1)), cur = stMonday(anchor), monthEnd = new Date(stPickYear, pm+1, 1);
+        while(s < monthEnd){ var e = stAddDays(s,7), sun = stAddDays(s,6), mm = stMinsIn(log, s, e);
+          if(s <= now) h += '<button type="button" class="st-pill' + (s.getTime() === cur.getTime() ? ' on' : '') + '" data-action="stats-pick-week" data-value="' + s.getTime() + '"><span>Mon ' + s.getDate() + ' ' + ST_MON[s.getMonth()] + ' – Sun ' + sun.getDate() + ' ' + ST_MON[sun.getMonth()] + '</span><span>' + (mm ? stHm(mm) : '—') + '</span></button>';
+          s = e; }
+        h += '</div>';
+      }
+    }
+    stOpenSheet(h);
+  }
+
+  function stWrapCards(st){
+    var T = st.ranked, lab = state.statsMode === 'all' ? 'All-time' : statsShortLabel().charAt(0).toUpperCase() + statsShortLabel().slice(1), c = [];
+    var tiles = ''; for(var k = 0; k < 40; k++) tiles += stPoster(T[k % T.length].s);
+    c.push({ html:'<div class="st-bgfill"><div class="st-mosaic">' + tiles + '</div><div class="st-shade"></div></div><div style="margin-top:auto"><div class="st-k">Your ' + stEsc(lab) + ' wrap</div><div class="st-big">' + stHm(st.mins) + '</div><div class="st-p">of watching, across ' + T.length + ' title' + (T.length === 1 ? '' : 's') + '.' + (st.estMins ? ' (≈' + stHm(st.estMins) + ' estimated)' : '') + '</div></div>' });
+    c.push({ bg:'linear-gradient(160deg,#3C2F6B,#1B2036)', html:'<div class="st-k">By the numbers</div><div class="st-h">' + st.eps + ' episode' + (st.eps === 1 ? '' : 's') + (st.movies ? ', ' + st.movies + ' movie' + (st.movies > 1 ? 's' : '') : '') + '</div><div class="st-p">All ' + T.length + ' title' + (T.length === 1 ? '' : 's') + ' you watched, most-watched first.</div><div class="st-strip">' + T.slice(0,15).map(function(t){ return stPoster(t.s); }).join('') + '</div>' + (T.length > 15 ? '<p class="st-p" style="margin-top:8px">+' + (T.length-15) + ' more</p>' : '') });
+    var top = T[0], ts = top.s;
+    c.push({ html:'<div class="st-bgfill">' + (ts.posterImage ? '<div class="st-blurbg" style="background-image:url(' + ts.posterImage + ')"></div>' : '<div class="st-blurbg" style="' + posterStyle(ts) + '"></div>') + '</div><div class="st-k">Your #1</div>' + stPoster(ts, '', 'width:56%;margin:12px auto 12px;border-radius:14px;') +
+      '<div class="st-h" style="text-align:center;font-size:24px;margin:0">' + stEsc(ts.title) + '</div><div class="st-p" style="text-align:center">' + stHm(top.mins) + (ts.type === 'movie' ? '' : ' · ' + top.eps + ' episode' + (top.eps === 1 ? '' : 's')) + '</div>' +
+      (T.length > 1 ? '<div class="st-runners">' + T.slice(1,5).map(function(t, n){ return '<div>' + stPoster(t.s, '<span class="st-badge">#' + (n+2) + '</span>') + stHm(t.mins) + '</div>'; }).join('') + '</div>' : '') });
+    if(st.genres.length) c.push({ bg:'linear-gradient(160deg,#A9762A,#4A2F0A)', html:'<div class="st-k">Your taste</div><div class="st-h">You\'re a ' + stEsc(st.genres[0].name) + (st.genres[1] ? ' &amp; ' + stEsc(st.genres[1].name) : '') + ' person</div>' +
+      st.genres.slice(0,4).map(function(g){ return '<div class="st-gen"><div class="st-stack">' + g.ids.slice(0,3).map(function(id, n){ return stPoster(st.titles[id].s, '', 'left:' + (n*22) + 'px;transform:rotate(' + ((n-1)*6) + 'deg);z-index:' + (3-n) + ';'); }).join('') + '</div><div><b>' + stEsc(g.name) + '</b><span>' + stHm(g.m) + ' · ' + g.ids.length + ' title' + (g.ids.length === 1 ? '' : 's') + '</span></div></div>'; }).join('') });
+    var F = st.finished, sh = F.slice(0,6), n = sh.length;
+    c.push({ bg:'linear-gradient(160deg,#16786F,#0B3D38)', html:'<div class="st-k">Finished</div><div class="st-h">' + (n ? 'You wrapped up ' + F.length + ' title' + (F.length === 1 ? '' : 's') : 'Nothing finished yet') + '</div>' +
+      (n ? '<div class="st-fan">' + sh.map(function(id, k){ var a = (k - (n-1)/2) * (n > 4 ? 11 : 14); return stPoster(st.titles[id].s, '<span class="st-chk">✓</span>', 'transform:translateX(-50%) rotate(' + a + 'deg);z-index:' + k + ';'); }).join('') + '</div>' : '<p class="st-p">Keep going. Your next finale is coming.</p>') +
+      (F.length > 6 ? '<p class="st-more">+' + (F.length-6) + ' more</p>' : '') + '<p class="st-p" style="text-align:center">' + sh.map(function(id){ return stEsc(st.titles[id].s.title); }).join(' · ') + '</p>' });
+    var cnt = Math.min(9, T.length), use = cnt <= 6 ? cnt : (cnt >= 9 ? 9 : 6), cols = use <= 1 ? 1 : use <= 3 ? use : use === 4 ? 2 : 3;
+    c.push({ bg:'linear-gradient(165deg,#1B2036,#3C2F6B 60%,#A9762A)', html:'<div class="st-k">' + stEsc(lab) + ' · TWatched</div><div class="st-h" style="margin-bottom:0">My ' + stEsc(lab) + ' in posters</div>' +
+      '<div class="st-sgrid" style="grid-template-columns:repeat(' + cols + ',1fr);' + (use === 1 ? 'width:55%;margin-left:auto;margin-right:auto' : '') + '">' + T.slice(0, use).map(function(t, k){ return stPoster(t.s, k === 0 ? '<span class="st-badge">#1</span>' : ''); }).join('') + '</div>' +
+      '<div class="st-stats4"><div><b>' + Math.round(st.mins/60) + 'h</b><span>watched</span></div><div><b>' + st.eps + '</b><span>episodes</span></div><div><b>' + st.finished.length + '</b><span>finished</span></div><div><b class="sm">' + stEsc(st.genres[0] ? st.genres[0].name : '—') + '</b><span>top genre</span></div></div>' +
+      '<div class="st-brand"><span>TWatched</span><span>Screenshot to share</span></div>' });
+    return c;
+  }
+  function stOpenStory(){
+    var st = statsCompute(); if(!st.entries.length) return;
+    stEnsureLayer(); stStory.cards = stWrapCards(st); stStory.i = 0;
+    document.getElementById('stStory').classList.add('on'); document.documentElement.classList.add('st-story-open');
+    stShowStory();
+  }
+  function stShowStory(){
+    clearTimeout(stStory.timer);
+    var c = stStory.cards[stStory.i];
+    document.getElementById('stStory').innerHTML = '<div class="st-scard" style="' + (c.bg ? 'background:' + c.bg : '') + '"><div class="st-sbars">' + stStory.cards.map(function(x, k){ return '<span class="' + (k < stStory.i ? 'done' : k === stStory.i ? 'cur' : '') + '"><i></i></span>'; }).join('') + '</div>' +
+      '<button type="button" class="st-sx" data-action="story-close" aria-label="Close">' + icon('close') + '</button><div class="st-tapL" data-action="story-prev"></div><div class="st-tapR" data-action="story-next"></div>' + c.html + '</div>';
+    stStory.timer = setTimeout(function(){ stStoryNav(1); }, 7000);
+  }
+  function stStoryNav(d){ stStory.i += d; if(stStory.i < 0) stStory.i = 0; if(stStory.i >= stStory.cards.length){ stCloseStory(); return; } stShowStory(); }
+  function stCloseStory(){ clearTimeout(stStory.timer); if(!stLayer) return; var s = document.getElementById('stStory'); s.classList.remove('on'); s.innerHTML = ''; document.documentElement.classList.remove('st-story-open'); }
+  function stShowTip(el, x, y){ stEnsureLayer(); var tip = document.getElementById('stTip'); tip.textContent = el.getAttribute('data-tip'); tip.classList.add('on'); var w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w/2)) + 'px'; tip.style.top = Math.max(8, y - 48) + 'px'; }
+  function stHideTip(){ if(stLayer) document.getElementById('stTip').classList.remove('on'); }
+  document.addEventListener('pointermove', function(e){ if(e.pointerType !== 'mouse') return; var el = e.target.closest && e.target.closest('[data-tip]'); if(el) stShowTip(el, e.clientX, e.clientY); else stHideTip(); });
+  var stTipTimer = null;
+  document.addEventListener('pointerdown', function(e){ var el = e.target.closest && e.target.closest('[data-tip]'); if(el && e.pointerType !== 'mouse'){ stShowTip(el, e.clientX, e.clientY); clearTimeout(stTipTimer); stTipTimer = setTimeout(stHideTip, 1600); } });
+  document.addEventListener('keydown', function(e){ if(!stLayer || !document.getElementById('stStory').classList.contains('on')) return; if(e.key === 'ArrowRight') stStoryNav(1); if(e.key === 'ArrowLeft') stStoryNav(-1); if(e.key === 'Escape') stCloseStory(); });
+  function statsResetPeriod(){ state.statsMode = 'month'; state.statsAnchor = Date.now(); }
+
+  function renderStatsSafe(){
+    try { return renderStats(); }
+    catch(err){ return '<div class="screen-pad"><h1 class="screen-title">Stats</h1><div class="st-card st-empty">Stats couldn\'t be shown right now. Your data is safe.</div></div>'; }
+  }
+
   /* ---------------- render dispatch ---------------- */
   var appEl = document.getElementById('app');
   var appBody = document.getElementById('appBody');
@@ -613,10 +966,10 @@
   function restoreTabScroll(){ window.scrollTo(0, tabScrollMemory[state.activeTab] || 0); }
 
   function tabNavHtml(){
-    var tabs = [['home','Home'],['browse','Browse'],['settings','Settings']];
+    var tabs = [['home','Home'],['browse','Browse'],['stats','Stats'],['settings','Settings']];
     return '<nav class="tab-nav">' + tabs.map(function(t){
       var key = t[0], label = t[1];
-      var iconKey = key==='home'?'home':(key==='browse'?'grid':'settings');
+      var iconKey = key==='home'?'home':(key==='browse'?'grid':(key==='stats'?'chart':'settings'));
       return '<button type="button" class="tab-nav-btn' + (state.activeTab===key?' active':'') + '" data-action="set-tab" data-tab="' + key + '">' +
         icon(iconKey) + '<span>' + label + '</span></button>';
     }).join('') + '</nav>';
@@ -642,6 +995,7 @@
     if(!state.overlay){
       html += '<div class="app-screen" style="display:' + (state.activeTab==='home' ? 'block':'none') + '">' + renderHome() + tabNavHtml() + '</div>';
       html += '<div class="app-screen" style="display:' + (state.activeTab==='browse' ? 'block':'none') + '">' + renderBrowse() + tabNavHtml() + '</div>';
+      html += '<div class="app-screen" style="display:' + (state.activeTab==='stats' ? 'block':'none') + '">' + (state.activeTab==='stats' ? renderStatsSafe() : '') + tabNavHtml() + '</div>';
       html += '<div class="app-screen" style="display:' + (state.activeTab==='settings' ? 'block':'none') + '">' + renderSettings() + tabNavHtml() + '</div>';
     } else if(state.overlay === 'detail'){
       html += '<div class="app-screen app-screen--overlay detail-ov' + (state.justOpenedOverlay?' is-animating-in':'') + '">' + renderDetailScreen() + '</div>';
@@ -1408,6 +1762,8 @@
       if(show && show.watched < show.totalEpisodes){
         show.watched += 1;
         if(show.watched >= show.totalEpisodes) show.completedAt = Date.now();
+        if(!show.watchLog) show.watchLog = {};
+        show.watchLog[String(show.watched)] = Date.now();   // for Stats: when this episode was watched
         touch();
         // The episode is already saved as watched here — the sheet only adds an optional rating.
         openRateSheet(show.id, show.watched, true);
@@ -1625,6 +1981,7 @@
           state.activeTab = btn.getAttribute('data-tab');
           state.overlay = null;
           if(state.activeTab === 'browse'){ state.browseViewMode = 'all'; state.browseEditMode = false; }
+          if(state.activeTab === 'stats') statsResetPeriod();
           render();
           window.scrollTo(0, 0);
           tabScrollMemory[state.activeTab] = 0;
@@ -1651,6 +2008,7 @@
         (function(){
           var rs = state.rateSheet; var s = rs && getShow(rs.showId);
           if(s && s.watched > 0 && rs.ep === s.watched){
+            if(s.watchLog) delete s.watchLog[String(s.watched)];
             s.watched -= 1;
             if(s.watched < s.totalEpisodes) s.completedAt = null;
             state.rateSheet = null; touch(); render(); showToast('Episode ' + rs.ep + ' unmarked');
@@ -1665,12 +2023,47 @@
           s.seriesRating = (s.seriesRating === v) ? 0 : v;
           touch(); render();
         })(); break;
+      case 'stats-mode':
+        state.statsMode = btn.getAttribute('data-value'); state.statsAnchor = Date.now(); render(); break;
+      case 'stats-step':
+        (function(){
+          var d = parseInt(btn.getAttribute('data-value'),10), a = new Date(state.statsAnchor);
+          if(state.statsMode === 'week') a.setDate(a.getDate() + 7*d);
+          else if(state.statsMode === 'month') a = new Date(a.getFullYear(), a.getMonth() + d, 1);
+          else if(state.statsMode === 'year') a = new Date(a.getFullYear() + d, 0, 1);
+          state.statsAnchor = a.getTime(); render();
+        })(); break;
+      case 'stats-pick':
+        stPickYear = new Date(state.statsAnchor).getFullYear(); stPickMonth = null; stOpenPicker(); break;
+      case 'stats-pick-year':
+        stPickYear = parseInt(btn.getAttribute('data-value'),10); stPickMonth = null; stOpenPicker(); break;
+      case 'stats-pick-wmonth':
+        stPickMonth = parseInt(btn.getAttribute('data-value'),10); stOpenPicker(); break;
+      case 'stats-pick-month':
+        state.statsAnchor = new Date(stPickYear, parseInt(btn.getAttribute('data-value'),10), 1).getTime(); stCloseSheet(); render(); break;
+      case 'stats-pick-week':
+        state.statsAnchor = parseInt(btn.getAttribute('data-value'),10); stCloseSheet(); render(); break;
+      case 'stats-pick-y':
+        state.statsAnchor = new Date(parseInt(btn.getAttribute('data-value'),10), 0, 1).getTime(); stCloseSheet(); render(); break;
+      case 'stats-close-sheet':
+        stCloseSheet(); break;
+      case 'stats-heat':
+        (function(){ var p = btn.getAttribute('data-value').split('-'); state.statsMode = 'month'; state.statsAnchor = new Date(+p[0], +p[1], 1).getTime(); render(); window.scrollTo(0,0); })(); break;
+      case 'stats-play':
+        stOpenStory(); break;
+      case 'story-next':
+        stStoryNav(1); break;
+      case 'story-prev':
+        stStoryNav(-1); break;
+      case 'story-close':
+        stCloseStory(); break;
       case 'check-episode':
         checkEpisode(btn.getAttribute('data-show')); break;
       case 'uncheck-episode':
         (function(){
           var s = getShow(btn.getAttribute('data-show'));
           if(s && s.watched > 0){
+            if(s.watchLog) delete s.watchLog[String(s.watched)];
             s.watched -= 1;
             if(s.watched < s.totalEpisodes) s.completedAt = null;
             touch(); render();
