@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.12.0';
+  var APP_VERSION = 'v2.13.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -972,9 +972,10 @@
      Everything happens on the phone: the image is drawn on a canvas from the wrap's own numbers and
      posters, then handed to the iPhone share sheet (or saved). Nothing is uploaded, nothing is saved
      to the app's data. */
-  var stShare = { open:false, style:'grid', hours:true, file:null, imgs:null, busy:0 };
+  var stShare = { open:false, mode:'wrap', style:'grid', hours:true, file:null, imgs:null, busy:0, opt:{ rating:true, feel:true, prog:true }, showId:null, ep:0, draft:null, img:null };
   function stShareOpen(){
     if(!stStory.st) return;
+    stShare.mode = 'wrap';
     clearTimeout(stStory.timer);
     document.getElementById('stStory').classList.add('paused');
     stShare.open = true; stShare.file = null;
@@ -994,6 +995,8 @@
     if(!stShare.open) return;
     stShare.open = false;
     document.getElementById('stShare').classList.remove('on'); document.getElementById('stShareScrim').classList.remove('on');
+    document.documentElement.classList.remove('st-share-open');
+    if(stShare.mode !== 'wrap') return;
     var s = document.getElementById('stStory'); s.classList.remove('paused');
     if(s.classList.contains('on')) stShowStory();   // carry on from the same card
   }
@@ -1010,21 +1013,24 @@
   }
   function stShareFonts(){
     if(!document.fonts || !document.fonts.load) return Promise.resolve();
-    return Promise.all(['600 80px Fraunces','800 30px Manrope','600 30px Manrope'].map(function(f){ return document.fonts.load(f).catch(function(){}); })).catch(function(){});
+    return Promise.all(['600 80px Fraunces','800 30px Manrope','700 30px Manrope','600 30px Manrope'].map(function(f){ return document.fonts.load(f).catch(function(){}); })).catch(function(){});
   }
   function stShareDraw(){
     var token = ++stShare.busy; stShare.file = null;
     var btn = document.querySelector('#stShare [data-action="share-go"]'); if(btn) btn.disabled = true;
     stShareMsg('Preparing image…');
-    Promise.all([stShareImages(), stShareFonts()]).then(function(r){
+    var wrap = stShare.mode === 'wrap';
+    Promise.all([wrap ? stShareImages() : stShowImage(), stShareFonts()]).then(function(r){
       if(token !== stShare.busy || !stShare.open) return;
       var cv = document.getElementById('stShareCv'); if(!cv) return;
-      stShareRender(cv.getContext('2d'), r[0]);
+      if(wrap) stShareRender(cv.getContext('2d'), r[0]); else stShareRenderShow(cv.getContext('2d'), r[0]);
       // Made ahead of time so that tapping Share… opens the share sheet straight away
       // (iPhone only allows it right after a tap, with no waiting in between).
       cv.toBlob(function(b){
         if(token !== stShare.busy || !b) return;
-        try { stShare.file = new File([b], 'twatched-' + stStory.lab.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') + '-wrap.png', { type:'image/png' }); } catch(e){ stShare.file = b; }
+        var sh = wrap ? null : getShow(stShare.showId), slug = function(t){ return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); };
+        var name = wrap ? slug(stStory.lab) + '-wrap' : (slug(sh && sh.title) || 'show') + (stShare.mode === 'ep' ? '-ep' + stShare.ep : '');
+        try { stShare.file = new File([b], 'twatched-' + name + '.png', { type:'image/png' }); } catch(e){ stShare.file = b; }
         var bt = document.querySelector('#stShare [data-action="share-go"]'); if(bt) bt.disabled = false;
         stShareMsg('');
       }, 'image/png');
@@ -1102,6 +1108,126 @@
       ctx.textAlign = 'center'; ctx.fillStyle = '#A9762A'; ctx.font = '800 24px Manrope, sans-serif'; ctx.fillText('TWATCHED', 540, 1420-up); ctx.textAlign = 'left';
     }
   }
+
+  /* ---------------- Share a series or one episode as a story image ----------------
+     Same sheet and same "made ahead, handed to the share sheet on tap" flow as the wrap.
+     The picture is look A: the poster on a soft blur of itself. Nothing is saved to the app's data. */
+  var ST_DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  function stShareOpenShow(showId, ep, draft){
+    var show = getShow(showId); if(!show) return;
+    stEnsureLayer();
+    stShare.mode = ep ? 'ep' : 'show'; stShare.showId = showId; stShare.ep = ep || 0; stShare.draft = draft || null;
+    stShare.open = true; stShare.file = null; stShare.img = null;
+    document.documentElement.classList.add('st-share-open');
+    var host = document.getElementById('stShare');
+    host.innerHTML = '<div class="st-grab"></div><div class="st-share-head"><h4>Share to your story</h4><button type="button" class="st-share-x" data-action="share-close" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<p class="st-share-sub">' + (ep ? 'Episode ' + ep + ' · ' : '') + stEsc(show.title) + '</p>' +
+      '<div class="st-share-pv"><canvas id="stShareCv" width="1080" height="1920"></canvas></div>' +
+      '<div class="st-share-opts">' + [['rating','Rating'],['feel','Feelings'],['prog','Progress &amp; time']].map(function(o){
+        return '<button type="button" class="st-share-toggle' + (stShare.opt[o[0]] ? ' on' : '') + '" data-action="share-opt" data-value="' + o[0] + '" aria-pressed="' + stShare.opt[o[0]] + '"><span class="sw"><i></i></span>' + o[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="st-share-actions"><button type="button" data-action="share-save">Save image</button><button type="button" class="primary" data-action="share-go">Share…</button></div>' +
+      '<p class="st-share-msg" id="stShareMsg"></p>';
+    host.classList.add('on'); document.getElementById('stShareScrim').classList.add('on');
+    stShareDraw();
+  }
+  function stShowImage(){
+    if(stShare.img) return Promise.resolve(stShare.img);
+    var show = getShow(stShare.showId);
+    return new Promise(function(res){
+      if(!show || !show.posterImage){ res(null); return; }
+      var im = new Image(); im.onload = function(){ stShare.img = im; res(im); }; im.onerror = function(){ res(null); }; im.src = show.posterImage;
+    });
+  }
+  function stShortDate(d){ return ST_DAY[d.getDay()] + ' ' + d.getDate() + ' ' + ST_MON[d.getMonth()]; }
+  function stEpDate(show, ep){
+    var ts = show.watchLog && show.watchLog[String(ep)];
+    var d = ts ? new Date(ts) : computeEpisodeDate(show, ep);
+    return d && !isNaN(d.getTime()) ? stShortDate(d) : '';
+  }
+  // the poster as it is cropped in the app's grid tiles (object-fit:cover + object-position + zoom)
+  function stCropPoster(ctx, show, im, x, y, w, h, r){
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 16; stRR(ctx,x,y,w,h,r); ctx.fillStyle = '#222'; ctx.fill(); ctx.shadowColor = 'transparent';
+    stRR(ctx,x,y,w,h,r); ctx.clip();
+    if(im){
+      var c = (show.posterCrops && show.posterCrops.grid) || { x:50, y:50, zoom:100 }, px = c.x/100, py = c.y/100, z = (c.zoom || 100)/100;
+      var k = Math.max(w/im.width, h/im.height), dw = im.width*k, dh = im.height*k, dx = x + (w-dw)*px, dy = y + (h-dh)*py, ox = x + w*px, oy = y + h*py;
+      ctx.drawImage(im, ox + (dx-ox)*z, oy + (dy-oy)*z, dw*z, dh*z);
+    } else {
+      var g = GRADIENTS[(show.posterIndex||0) % GRADIENTS.length], gr = ctx.createLinearGradient(x,y,x+w,y+h); gr.addColorStop(0,g[0]); gr.addColorStop(1,g[1]);
+      ctx.fillStyle = gr; ctx.fillRect(x,y,w,h); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '600 ' + Math.round(w*0.36) + 'px Fraunces, Georgia, serif'; ctx.fillText(initialOf(show), x+w/2, y+h/2); ctx.textBaseline = 'alphabetic';
+    }
+    ctx.restore();
+  }
+  function stSpaced(ctx, px){ if(ctx.letterSpacing !== undefined) ctx.letterSpacing = px + 'px'; }
+  function stStars(ctx, v, cx, y, sz, align){
+    var gap = sz*0.14, w = 5*sz + 4*gap, x = align === 'left' ? cx : cx - w/2;
+    ctx.save(); ctx.font = sz + 'px Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    for(var i = 0; i < 5; i++){ var sx = x + i*(sz+gap); ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillText('★', sx, y);
+      var f = Math.max(0, Math.min(1, v - i)), part = f >= .75 ? 1 : f >= .25 ? .5 : 0;
+      if(part){ ctx.save(); ctx.beginPath(); ctx.rect(sx, y - sz, sz*part, sz*2); ctx.clip(); ctx.fillStyle = '#F2B544'; ctx.fillText('★', sx, y); ctx.restore(); } }
+    ctx.restore(); return w;
+  }
+  function stChips(ctx, items, y){
+    var h = 66, pad = 28, gap = 14, F = '700 30px Manrope, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+    ctx.font = F; var ws = items.map(function(t){ return ctx.measureText(t).width + pad*2; }), keep = [], tot = 0;
+    for(var i = 0; i < ws.length; i++){ var add = ws[i] + (keep.length ? gap : 0); if(tot + add > 940) break; tot += add; keep.push(i); }
+    var x = 540 - tot/2;
+    keep.forEach(function(i){ stRR(ctx, x, y, ws[i], h, h/2); ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.font = F; ctx.fillText(items[i], x + pad, y + h/2 + 1); x += ws[i] + gap; });
+    ctx.textBaseline = 'alphabetic';
+  }
+  function stShareRenderShow(ctx, im){
+    var show = getShow(stShare.showId); if(!show) return;
+    var o = stShare.opt, movie = show.type === 'movie', ep = stShare.mode === 'ep' ? stShare.ep : 0, total = show.totalEpisodes || 0;
+    ctx.clearRect(0,0,1080,1920); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    // soft blurred backdrop: the poster drawn tiny, then scaled up
+    ctx.fillStyle = '#141414'; ctx.fillRect(0,0,1080,1920);
+    if(im){ var t = document.createElement('canvas'); t.width = 27; t.height = 48; var tc = t.getContext('2d'), k = Math.max(27/im.width, 48/im.height);
+      tc.drawImage(im, (27-im.width*k)/2, (48-im.height*k)/2, im.width*k, im.height*k); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(t, 0, 0, 1080, 1920); }
+    else { var g0 = GRADIENTS[(show.posterIndex||0) % GRADIENTS.length], bg = ctx.createLinearGradient(0,0,1080,1920); bg.addColorStop(0,g0[0]); bg.addColorStop(1,g0[1]); ctx.fillStyle = bg; ctx.fillRect(0,0,1080,1920); }
+    ctx.fillStyle = 'rgba(0,0,0,.48)'; ctx.fillRect(0,0,1080,1920);
+    var sh = ctx.createLinearGradient(0,1000,0,1920); sh.addColorStop(0,'rgba(0,0,0,0)'); sh.addColorStop(1,'rgba(0,0,0,.55)'); ctx.fillStyle = sh; ctx.fillRect(0,1000,1080,920);
+    // Instagram covers about the top 250px and bottom 340px, so everything sits between y 250 and 1580.
+    var kick = ep ? 'Just watched' : movie ? 'Movie night' : show.watched >= total ? 'Finished' : show.watched > 0 ? 'Now watching' : 'On my list';
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '800 28px Manrope, sans-serif'; stSpaced(ctx, 4); ctx.fillText(kick.toUpperCase(), 540, 300); stSpaced(ctx, 0);
+    stCropPoster(ctx, show, im, 305, 335, 470, 705, 30);
+    if(ep){ // corner tag
+      var tag = 'EPISODE ' + ep; ctx.font = '800 26px Manrope, sans-serif'; stSpaced(ctx, 3); var tw = ctx.measureText(tag).width + 44;
+      stRR(ctx, 325, 355, tw, 56, 28); ctx.fillStyle = 'rgba(15,17,28,.72)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(tag, 347, 393); stSpaced(ctx, 0); ctx.textAlign = 'center';
+    }
+    var y = 1130; ctx.fillStyle = '#fff'; stFitFont(ctx, show.title, 940, 64, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, show.title, 940), 540, y);
+    var sub;
+    if(ep){ sub = stEpDate(show, ep) + (o.prog && total ? ' · ' + ep + ' of ' + total : ''); }
+    else sub = [show.seasonLabel, show.originalTitle || (movie && show.releaseYear ? String(show.releaseYear) : '')].filter(Boolean).join(' · ');
+    if(sub){ y += 52; ctx.globalAlpha = .78; stFitFont(ctx, sub, 900, 32, '600', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, sub, 900), 540, y); ctx.globalAlpha = 1; }
+    var er = ep ? (stShare.draft || epRating(show, ep) || {}) : null;
+    var score = ep ? (er.r || 0) : movie ? (show.rating || 0) : (show.seriesRating || epAverage(show));
+    if(o.rating && score){
+      y += 78;
+      if(ep) stStars(ctx, score, 540, y, 58);
+      else { var txt = movie || show.seriesRating ? Math.round(score) + '.0' : score.toFixed(1), w = stStars(ctx, score, 490, y, 58);
+        ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = '600 50px Fraunces, Georgia, serif'; ctx.fillText(txt, 490 + w/2 + 22, y + 18); ctx.textAlign = 'center'; }
+      y += 10;
+    }
+    var feels = ep ? (er.e || []) : (movie ? [] : feelingCounts(show).slice(0,3).map(function(c){ return c[0] + ' ×' + c[1]; }));
+    if(o.feel && feels.length){ y += 42; stChips(ctx, feels, y); y += 66; }
+    if(o.prog){
+      ctx.textAlign = 'center';
+      if(movie){ var ml = [show.runtimeMinutes ? stHm(+show.runtimeMinutes) : '', show.watchedDate ? 'watched ' + stShortDate(new Date(show.watchedDate + 'T12:00:00')) : ''].filter(Boolean).join(' · ');
+        if(ml){ y += 70; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '700 32px Manrope, sans-serif'; ctx.fillText(ml, 540, y); } }
+      else if(total){
+        y += 56; var bw = 560, bx = 540 - bw/2, p = Math.min(1, (ep || show.watched) / total);
+        stRR(ctx, bx, y, bw, 14, 7); ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fill(); if(p > 0){ stRR(ctx, bx, y, Math.max(14, bw*p), 14, 7); ctx.fillStyle = '#F2B544'; ctx.fill(); } y += 14;
+        if(!ep){ var mins = show.watched * (+show.episodeMinutes || 0);
+          y += 44; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '700 30px Manrope, sans-serif'; ctx.fillText(show.watched + ' of ' + total + ' episodes' + (mins ? ' · ' + stHm(mins) : ''), 540, y); }
+      }
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '800 26px Manrope, sans-serif'; stSpaced(ctx, 6); ctx.fillText('TWATCHED', 540, Math.min(1572, Math.max(y + 80, 1500))); stSpaced(ctx, 0);
+    ctx.textAlign = 'left';
+  }
   function stShareGo(){
     var f = stShare.file; if(!f) return;
     var files = [f];
@@ -1123,6 +1249,7 @@
   var stTipTimer = null;
   document.addEventListener('pointerdown', function(e){ var el = e.target.closest && e.target.closest('[data-tip]'); if(el && e.pointerType !== 'mouse'){ stShowTip(el, e.clientX, e.clientY); clearTimeout(stTipTimer); stTipTimer = setTimeout(stHideTip, 1600); } });
   document.addEventListener('keydown', function(e){ if(!stLayer || !document.getElementById('stStory').classList.contains('on')) return; if(stShare.open){ if(e.key === 'Escape') stShareClose(); return; } if(e.key === 'ArrowRight') stStoryNav(1); if(e.key === 'ArrowLeft') stStoryNav(-1); if(e.key === 'Escape') stCloseStory(); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && stShare.open && stShare.mode !== 'wrap') stShareClose(); });
   function statsResetPeriod(){ state.statsMode = 'month'; state.statsAnchor = Date.now(); }
 
   function renderStatsSafe(){
@@ -1448,6 +1575,7 @@
         posterImgTag(movie,'banner') +
         (movie.posterImage ? '' : '<span class="detail-hero__initial">' + initialOf(movie) + '</span>') +
         '<div class="detail-hero__actions">' +
+          '<button class="icon-btn" data-action="share-show" data-show="' + movie.id + '" aria-label="Share ' + movie.title + '">' + icon('share') + '</button>' +
           '<button class="icon-btn" data-action="edit-show" data-show="' + movie.id + '" aria-label="Edit ' + movie.title + '">' + icon('pencil') + '</button>' +
           '<button class="icon-btn icon-btn--danger' + (deleteConfirming?' danger-confirm':'') + '" data-action="delete-show" data-show="' + movie.id + '" aria-label="Delete ' + movie.title + '">' + icon('trash') + '</button>' +
         '</div>' +
@@ -1538,7 +1666,8 @@
     var managing = state.managingList === 'feeling';
     return '<div class="rate-grab"></div>' +
       '<div class="rate-top"><div class="rate-thumb" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' + posterImgTag(show,'thumbnail') + '</div>' +
-        '<div><h3>Episode ' + rs.ep + (rs.isNew ? ' watched ✓' : '') + '</h3><p>' + show.title + (rs.isNew ? ' · both optional' : ' · edit your rating') + '</p></div></div>' +
+        '<div class="rate-top__text"><h3>Episode ' + rs.ep + (rs.isNew ? ' watched ✓' : '') + '</h3><p>' + show.title + (rs.isNew ? ' · both optional' : ' · edit your rating') + '</p></div>' +
+        '<button type="button" class="rate-share" data-action="share-rate">' + icon('share') + 'Share</button></div>' +
       '<div class="star-pick rate-stars">' + stars + '</div>' +
       '<p class="score-sub" style="margin-top:14px;">How did it make you feel?</p>' +
       '<div class="feel-grid">' + feels + '</div>' +
@@ -1566,6 +1695,7 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(function(){ t.classList.remove('on'); }, 1800);
   }
 
+  function epShareBtn(show, ep){ return '<button type="button" class="ep-share" data-action="share-ep" data-show="' + show.id + '" data-ep="' + ep + '" aria-label="Share episode ' + ep + '">' + icon('share') + '</button>'; }
   function renderShowDetailContent(show, opts){
     if(show.type === 'movie') return renderMovieDetailContent(show, opts);
     opts = opts || {};
@@ -1577,9 +1707,9 @@
       var d = computeEpisodeDate(show, i);
       if(i <= show.watched){
         if(i === show.watched){
-          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span>' + epShareBtn(show, i) + '</li>';
         } else {
-          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span>' + epShareBtn(show, i) + '</li>';
         }
       } else if(i === show.watched+1 && info.aired){
         rows += '<li class="ep-row ep-row--ready"><button class="ep-row__check" data-action="check-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDateTime(d) + '</span></li>';
@@ -1595,6 +1725,7 @@
         posterImgTag(show,'banner') +
         (show.posterImage ? '' : '<span class="detail-hero__initial">' + initialOf(show) + '</span>') +
         '<div class="detail-hero__actions">' +
+          '<button class="icon-btn" data-action="share-show" data-show="' + show.id + '" aria-label="Share ' + show.title + '">' + icon('share') + '</button>' +
           '<button class="icon-btn" data-action="edit-show" data-show="' + show.id + '" aria-label="Edit ' + show.title + '">' + icon('pencil') + '</button>' +
           '<button class="icon-btn icon-btn--danger' + (deleteConfirming?' danger-confirm':'') + '" data-action="delete-show" data-show="' + show.id + '" aria-label="Delete ' + show.title + '">' + icon('trash') + '</button>' +
         '</div>' +
@@ -2238,6 +2369,15 @@
         stShareOpen(); break;
       case 'share-close':
         stShareClose(); break;
+      case 'share-show':
+        stShareOpenShow(btn.getAttribute('data-show'), 0); break;
+      case 'share-ep':
+        stShareOpenShow(btn.getAttribute('data-show'), parseInt(btn.getAttribute('data-ep'), 10)); break;
+      case 'share-rate':
+        // shares what's on the sheet right now, even before Save
+        if(state.rateSheet) stShareOpenShow(state.rateSheet.showId, state.rateSheet.ep, { r: state.rateSheet.r, e: state.rateSheet.e.slice() }); break;
+      case 'share-opt':
+        (function(){ var k = btn.getAttribute('data-value'); stShare.opt[k] = !stShare.opt[k]; btn.classList.toggle('on', stShare.opt[k]); btn.setAttribute('aria-pressed', String(stShare.opt[k])); stShareDraw(); })(); break;
       case 'share-style':
         stShare.style = btn.getAttribute('data-value');
         Array.prototype.forEach.call(document.querySelectorAll('#stShare .st-share-styles button'), function(b){ b.classList.toggle('on', b === btn); });
