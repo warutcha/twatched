@@ -578,7 +578,7 @@
   @media (max-width:469px){ .st-story, .st-story::after{ background:var(--st-edge,#000); } }
   .st-story.on{ display:flex; }
   .st-scard{ position:relative; width:100%; height:100%; overflow:hidden; color:#fff; display:flex; flex-direction:column;
-    padding:calc(58px + var(--st-sat)) 24px calc(26px + var(--st-sab)); user-select:none; -webkit-user-select:none; background:#111; }
+    padding:calc(58px + var(--st-sat)) 24px calc(80px + var(--st-sab)); user-select:none; -webkit-user-select:none; background:#111; }
   @media (min-width:470px){ .st-scard{ width:min(430px,100%); border-radius:26px; height:calc(100% - 40px); max-height:900px; } }
   .st-scard > *{ position:relative; z-index:1; }
   .st-scard .st-pst{ box-shadow:0 6px 18px rgba(0,0,0,.35); }
@@ -589,6 +589,34 @@
   @keyframes stFill{ from{width:0} to{width:100%} }
   .st-sx{ position:absolute !important; top:calc(26px + var(--st-sat)); right:16px; background:rgba(255,255,255,.18); border:none; color:#fff; width:34px; height:34px; border-radius:50%; cursor:pointer; z-index:6 !important; display:flex; align-items:center; justify-content:center; padding:0; }
   .st-sx .icon{ width:16px; height:16px; }
+  .st-sbtn{ position:absolute !important; left:50%; transform:translateX(-50%); bottom:calc(20px + var(--st-sab)); z-index:6 !important; display:flex; align-items:center; gap:7px;
+    background:rgba(255,255,255,.2); color:#fff; border:1px solid rgba(255,255,255,.35); border-radius:999px; padding:11px 22px; font-family:inherit; font-size:14px; font-weight:800; cursor:pointer;
+    -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); }
+  .st-sbtn .icon{ width:17px; height:17px; }
+  .st-story.paused .st-sbars span.cur i{ animation-play-state:paused; }
+  .st-share-scrim{ z-index:125; background:rgba(0,0,0,.5); }
+  .st-sheet.st-share{ z-index:130; max-height:92vh; padding-bottom:calc(16px + env(safe-area-inset-bottom,0px)); }
+  /* fills below the sheet like the picker's ::after, but a shadow doesn't add blank scroll space */
+  .st-sheet.st-share.on{ box-shadow:0 200px 0 0 var(--surface); } .st-sheet.st-share.on::after{ content:none; }
+  .st-share-head{ display:flex; align-items:center; justify-content:space-between; }
+  .st-share-head h4{ margin:0; }
+  .st-share-x{ background:var(--surface-2); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer; }
+  .st-share-x .icon{ width:15px; height:15px; }
+  .st-share-sub{ margin:2px 0 10px; font-size:12px; color:var(--text-muted, #6B6F87); font-weight:600; }
+  .st-share-styles{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .st-share-styles button{ font-family:inherit; font-size:12.5px; font-weight:700; border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:12px; padding:10px 4px; cursor:pointer; }
+  .st-share-styles button.on{ background:var(--teal); border-color:var(--teal); color:#fff; }
+  .st-share-pv{ display:flex; justify-content:center; margin:12px 0 10px; }
+  .st-share-pv canvas{ height:min(40vh,380px); width:auto; aspect-ratio:9/16; border-radius:14px; box-shadow:0 6px 20px rgba(0,0,0,.25); background:#222; }
+  .st-share-toggle{ display:flex; align-items:center; gap:10px; margin:0 auto 12px; background:none; border:none; color:var(--text); font-family:inherit; font-size:14px; font-weight:700; cursor:pointer; padding:4px; }
+  .st-share-toggle .sw{ width:40px; height:24px; border-radius:12px; background:var(--border); position:relative; transition:background .15s; }
+  .st-share-toggle .sw i{ position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:left .15s; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .st-share-toggle.on .sw{ background:var(--teal); } .st-share-toggle.on .sw i{ left:19px; }
+  .st-share-actions{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .st-share-actions button{ font-family:inherit; font-size:14px; font-weight:800; border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:14px; padding:13px 6px; cursor:pointer; }
+  .st-share-actions button.primary{ background:var(--teal); border-color:var(--teal); color:#fff; }
+  .st-share-actions button:disabled{ opacity:.45; cursor:default; }
+  .st-share-msg{ text-align:center; font-size:12px; font-weight:600; color:var(--text-muted, #6B6F87); margin:8px 0 0; min-height:16px; }
   .st-tapL,.st-tapR{ position:absolute !important; top:0; bottom:0; z-index:4 !important; }
   .st-tapL{ left:0; width:35%; } .st-tapR{ right:0; width:65%; }
   .st-bgfill{ position:absolute !important; inset:0; z-index:0 !important; }
@@ -633,6 +661,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=215"></script>
+<script src="app.js?v=216"></script>
 </body>
 </html>

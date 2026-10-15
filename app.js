@@ -4,6 +4,7 @@
 
   /* ---------------- icons ---------------- */
   var ICON_PATHS = {
+    share: '<path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7"/>',
     chart: '<path d="M4 20h16"/><path d="M7 16v-5"/><path d="M12 16V7"/><path d="M17 16v-8"/>',
     home: '<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9"/>',
     grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
@@ -61,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.11.1';
+  var APP_VERSION = 'v2.12.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -872,7 +873,7 @@
   function stEnsureLayer(){
     if(stLayer) return stLayer;
     stLayer = document.createElement('div'); stLayer.id = 'statsLayer';
-    stLayer.innerHTML = '<div class="st-scrim" id="stScrim" data-action="stats-close-sheet"></div><div class="st-sheet" id="stSheet"></div><div class="st-story" id="stStory"></div><div class="st-tip" id="stTip"></div>';
+    stLayer.innerHTML = '<div class="st-scrim" id="stScrim" data-action="stats-close-sheet"></div><div class="st-sheet" id="stSheet"></div><div class="st-story" id="stStory"></div><div class="st-scrim st-share-scrim" id="stShareScrim" data-action="share-close"></div><div class="st-sheet st-share" id="stShare"></div><div class="st-tip" id="stTip"></div>';
     document.body.appendChild(stLayer);
     return stLayer;
   }
@@ -903,8 +904,9 @@
     stOpenSheet(h);
   }
 
+  function stWrapLabel(){ return state.statsMode === 'all' ? 'All-time' : statsShortLabel().charAt(0).toUpperCase() + statsShortLabel().slice(1); }
   function stWrapCards(st){
-    var T = st.ranked, lab = state.statsMode === 'all' ? 'All-time' : statsShortLabel().charAt(0).toUpperCase() + statsShortLabel().slice(1), c = [];
+    var T = st.ranked, lab = stWrapLabel(), c = [];
     var tiles = ''; for(var k = 0; k < 40; k++) tiles += stPoster(T[k % T.length].s);
     c.push({ edge:'#0B1E28', html:'<div class="st-bgfill"><div class="st-mosaic">' + tiles + '</div><div class="st-shade"></div></div><div style="margin-top:auto"><div class="st-k">Your ' + stEsc(lab) + ' wrap</div><div class="st-big">' + stHm(st.mins) + '</div><div class="st-p">of watching, across ' + T.length + ' title' + (T.length === 1 ? '' : 's') + '.' + (st.estMins ? ' (≈' + stHm(st.estMins) + ' estimated)' : '') + '</div></div>' });
     c.push({ edge:'#1B2036', bg:'linear-gradient(160deg,#3C2F6B,#1B2036)', html:'<div class="st-k">By the numbers</div><div class="st-h">' + st.eps + ' episode' + (st.eps === 1 ? '' : 's') + (st.movies ? ', ' + st.movies + ' movie' + (st.movies > 1 ? 's' : '') : '') + '</div><div class="st-p">All ' + T.length + ' title' + (T.length === 1 ? '' : 's') + ' you watched, most-watched first.</div><div class="st-strip st-fit">' + T.slice(0,15).map(function(t){ return stPoster(t.s); }).join('') + '</div>' + (T.length > 15 ? '<p class="st-p" style="margin-top:8px">+' + (T.length-15) + ' more</p>' : '') });
@@ -922,12 +924,12 @@
     c.push({ edge:'#A9762A', bg:'linear-gradient(165deg,#1B2036,#3C2F6B 60%,#A9762A)', html:'<div class="st-k">' + stEsc(lab) + ' · TWatched</div><div class="st-h" style="margin-bottom:0">My ' + stEsc(lab) + ' in posters</div>' +
       '<div class="st-sgrid st-fit" style="grid-template-columns:repeat(' + cols + ',1fr);' + (use === 1 ? 'width:55%;margin-left:auto;margin-right:auto' : '') + '">' + T.slice(0, use).map(function(t, k){ return stPoster(t.s, k === 0 ? '<span class="st-badge">#1</span>' : ''); }).join('') + '</div>' +
       '<div class="st-stats4"><div><b>' + Math.round(st.mins/60) + 'h</b><span>watched</span></div><div><b>' + st.eps + '</b><span>episodes</span></div><div><b>' + st.finished.length + '</b><span>finished</span></div><div><b class="sm">' + stEsc(st.genres[0] ? st.genres[0].name : '—') + '</b><span>top genre</span></div></div>' +
-      '<div class="st-brand"><span>TWatched</span><span>Screenshot to share</span></div>' });
+      '<div class="st-brand"><span>TWatched</span><span>' + stEsc(lab) + ' wrap</span></div>' });
     return c;
   }
   function stOpenStory(){
     var st = statsCompute(); if(!st.entries.length) return;
-    stEnsureLayer(); stStory.cards = stWrapCards(st); stStory.i = 0;
+    stEnsureLayer(); stStory.cards = stWrapCards(st); stStory.i = 0; stStory.st = st; stStory.lab = stWrapLabel(); stShare.imgs = null;
     document.getElementById('stStory').classList.add('on'); document.documentElement.classList.add('st-story-open');
     stShowStory();
   }
@@ -937,9 +939,10 @@
     var host = document.getElementById('stStory');
     host.style.setProperty('--st-edge', c.edge || '#000');
     host.innerHTML = '<div class="st-scard" style="' + (c.bg ? 'background:' + c.bg : '') + '"><div class="st-sbars">' + stStory.cards.map(function(x, k){ return '<span class="' + (k < stStory.i ? 'done' : k === stStory.i ? 'cur' : '') + '"><i></i></span>'; }).join('') + '</div>' +
-      '<button type="button" class="st-sx" data-action="story-close" aria-label="Close">' + icon('close') + '</button><div class="st-tapL" data-action="story-prev"></div><div class="st-tapR" data-action="story-next"></div>' + c.html + '</div>';
+      '<button type="button" class="st-sx" data-action="story-close" aria-label="Close">' + icon('close') + '</button><div class="st-tapL" data-action="story-prev"></div><div class="st-tapR" data-action="story-next"></div>' + c.html +
+      '<button type="button" class="st-sbtn" data-action="wrap-share">' + icon('share') + 'Share</button></div>';
     stFitCard();
-    stStory.timer = setTimeout(function(){ stStoryNav(1); }, 7000);
+    if(!stShare.open) stStory.timer = setTimeout(function(){ stStoryNav(1); }, 7000);
   }
   // Short screens: shrink the poster block of the current card (a little at a time) until
   // nothing reaches past the card's bottom padding, so no text is ever cut off.
@@ -949,7 +952,7 @@
     function overflow(){
       var cr = card.getBoundingClientRect(), limit = cr.bottom - parseFloat(getComputedStyle(card).paddingBottom), worst = 0;
       Array.prototype.forEach.call(card.children, function(el){
-        if(/st-bgfill|st-sbars|st-tapL|st-tapR|st-sx/.test(el.className)) return;
+        if(/st-bgfill|st-sbars|st-tapL|st-tapR|st-sx|st-sbtn/.test(el.className)) return;
         var b = el.getBoundingClientRect().bottom; if(b - limit > worst) worst = b - limit;
       });
       return worst;
@@ -963,13 +966,163 @@
   }
   window.addEventListener('resize', function(){ if(stLayer && document.getElementById('stStory').classList.contains('on')){ clearTimeout(stStory.timer); stShowStory(); } });
   function stStoryNav(d){ stStory.i += d; if(stStory.i < 0) stStory.i = 0; if(stStory.i >= stStory.cards.length){ stCloseStory(); return; } stShowStory(); }
-  function stCloseStory(){ clearTimeout(stStory.timer); if(!stLayer) return; var s = document.getElementById('stStory'); s.classList.remove('on'); s.innerHTML = ''; document.documentElement.classList.remove('st-story-open'); }
+  function stCloseStory(){ clearTimeout(stStory.timer); if(!stLayer) return; if(stShare.open){ stShare.open = false; stShare.busy++; document.getElementById('stShare').classList.remove('on'); document.getElementById('stShareScrim').classList.remove('on'); } var s = document.getElementById('stStory'); s.classList.remove('paused'); s.classList.remove('on'); s.innerHTML = ''; document.documentElement.classList.remove('st-story-open'); }
+
+  /* ---------------- Share the wrap as a 1080×1920 story image ----------------
+     Everything happens on the phone: the image is drawn on a canvas from the wrap's own numbers and
+     posters, then handed to the iPhone share sheet (or saved). Nothing is uploaded, nothing is saved
+     to the app's data. */
+  var stShare = { open:false, style:'grid', hours:true, file:null, imgs:null, busy:0 };
+  function stShareOpen(){
+    if(!stStory.st) return;
+    clearTimeout(stStory.timer);
+    document.getElementById('stStory').classList.add('paused');
+    stShare.open = true; stShare.file = null;
+    var host = document.getElementById('stShare');
+    host.innerHTML = '<div class="st-grab"></div><div class="st-share-head"><h4>Share to your story</h4><button type="button" class="st-share-x" data-action="share-close" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<p class="st-share-sub">' + stEsc(stStory.lab) + ' wrap · 1080 × 1920</p>' +
+      '<div class="st-share-styles">' + [['grid','Poster grid'],['hero','#1 spotlight'],['sticker','Sticker']].map(function(s){
+        return '<button type="button" class="' + (stShare.style === s[0] ? 'on' : '') + '" data-action="share-style" data-value="' + s[0] + '">' + s[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="st-share-pv"><canvas id="stShareCv" width="1080" height="1920"></canvas></div>' +
+      '<button type="button" class="st-share-toggle' + (stShare.hours ? ' on' : '') + '" data-action="share-hours" aria-pressed="' + stShare.hours + '"><span class="sw"><i></i></span>Show hours</button>' +
+      '<div class="st-share-actions"><button type="button" data-action="share-save">Save image</button><button type="button" class="primary" data-action="share-go">Share…</button></div>' +
+      '<p class="st-share-msg" id="stShareMsg"></p>';
+    host.classList.add('on'); document.getElementById('stShareScrim').classList.add('on');
+    stShareDraw();
+  }
+  function stShareClose(){
+    if(!stShare.open) return;
+    stShare.open = false;
+    document.getElementById('stShare').classList.remove('on'); document.getElementById('stShareScrim').classList.remove('on');
+    var s = document.getElementById('stStory'); s.classList.remove('paused');
+    if(s.classList.contains('on')) stShowStory();   // carry on from the same card
+  }
+  function stShareMsg(t){ var m = document.getElementById('stShareMsg'); if(m) m.textContent = t; }
+  function stShareImages(){
+    if(stShare.imgs) return Promise.resolve(stShare.imgs);
+    var T = stStory.st.ranked.slice(0, 9), out = {};
+    return Promise.all(T.map(function(t){
+      return new Promise(function(res){
+        if(!t.s.posterImage){ res(); return; }
+        var im = new Image(); im.onload = function(){ out[t.s.id] = im; res(); }; im.onerror = function(){ res(); }; im.src = t.s.posterImage;
+      });
+    })).then(function(){ stShare.imgs = out; return out; });
+  }
+  function stShareFonts(){
+    if(!document.fonts || !document.fonts.load) return Promise.resolve();
+    return Promise.all(['600 80px Fraunces','800 30px Manrope','600 30px Manrope'].map(function(f){ return document.fonts.load(f).catch(function(){}); })).catch(function(){});
+  }
+  function stShareDraw(){
+    var token = ++stShare.busy; stShare.file = null;
+    var btn = document.querySelector('#stShare [data-action="share-go"]'); if(btn) btn.disabled = true;
+    stShareMsg('Preparing image…');
+    Promise.all([stShareImages(), stShareFonts()]).then(function(r){
+      if(token !== stShare.busy || !stShare.open) return;
+      var cv = document.getElementById('stShareCv'); if(!cv) return;
+      stShareRender(cv.getContext('2d'), r[0]);
+      // Made ahead of time so that tapping Share… opens the share sheet straight away
+      // (iPhone only allows it right after a tap, with no waiting in between).
+      cv.toBlob(function(b){
+        if(token !== stShare.busy || !b) return;
+        try { stShare.file = new File([b], 'twatched-' + stStory.lab.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') + '-wrap.png', { type:'image/png' }); } catch(e){ stShare.file = b; }
+        var bt = document.querySelector('#stShare [data-action="share-go"]'); if(bt) bt.disabled = false;
+        stShareMsg('');
+      }, 'image/png');
+    });
+  }
+  function stRR(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function stFitFont(ctx, text, maxW, size, weight, family){
+    var min = Math.max(20, Math.round(size*0.6));
+    do { ctx.font = weight + ' ' + size + 'px ' + family; size -= 2; } while(ctx.measureText(text).width > maxW && size >= min);
+  }
+  function stClip(ctx, text, maxW){ if(ctx.measureText(text).width <= maxW) return text; while(text.length > 1 && ctx.measureText(text + '…').width > maxW) text = text.slice(0,-1); return text.replace(/\s+$/,'') + '…'; }
+  function stSharePoster(ctx, imgs, s, x, y, w, h, r, shadow){
+    ctx.save();
+    if(shadow){ ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 36; ctx.shadowOffsetY = 14; stRR(ctx,x,y,w,h,r); ctx.fillStyle = '#222'; ctx.fill(); ctx.shadowColor = 'transparent'; }
+    stRR(ctx,x,y,w,h,r); ctx.clip();
+    var im = imgs[s.id];
+    if(im){ var k = Math.max(w/im.width, h/im.height); ctx.drawImage(im, x+(w-im.width*k)/2, y+(h-im.height*k)/2, im.width*k, im.height*k); }
+    else {
+      var g = GRADIENTS[(s.posterIndex||0) % GRADIENTS.length], gr = ctx.createLinearGradient(x,y,x+w,y+h); gr.addColorStop(0,g[0]); gr.addColorStop(1,g[1]);
+      ctx.fillStyle = gr; ctx.fillRect(x,y,w,h); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = 'italic 600 ' + Math.round(w*0.32) + 'px Fraunces, Georgia, serif'; ctx.fillText(initialOf(s), x+w/2, y+h/2); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    }
+    ctx.restore();
+  }
+  function stShareBadge(ctx, txt, x, y){ ctx.save(); ctx.font = '800 30px Manrope, sans-serif'; var w = ctx.measureText(txt).width + 28; stRR(ctx,x,y,w,46,23); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fill(); ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillText(txt, x+14, y+24); ctx.restore(); }
+  function stShareRender(ctx, imgs){
+    var st = stStory.st, T = st.ranked, lab = stStory.lab, hours = stShare.hours, LAB = lab.toUpperCase();
+    var hrs = Math.round(st.mins/60) + 'h', genre = st.genres[0] ? st.genres[0].name : '—';
+    ctx.clearRect(0,0,1080,1920); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    // Instagram covers roughly the top 250px and bottom 340px, so everything sits between those.
+    if(stShare.style === 'grid'){
+      var g = ctx.createLinearGradient(0,0,540,1920); g.addColorStop(0,'#1B2036'); g.addColorStop(.6,'#3C2F6B'); g.addColorStop(1,'#A9762A'); ctx.fillStyle = g; ctx.fillRect(0,0,1080,1920);
+      ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = '800 30px Manrope, sans-serif'; ctx.fillText('MY ' + LAB + ' · TWATCHED', 60, 290);
+      ctx.fillStyle = '#fff'; var ttl = 'My ' + (lab === 'All-time' ? 'all-time' : lab) + ' in posters'; stFitFont(ctx, ttl, 960, 76, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, ttl, 960), 60, 376);
+      var n = Math.min(9, T.length), use = n <= 6 ? n : (n >= 9 ? 9 : 6), cols = use <= 1 ? 1 : use <= 3 ? use : use === 4 ? 2 : 3, rows = Math.ceil(use/cols);
+      var gap = 22, areaH = 3*266 + 2*gap, cellH = (areaH - gap*(rows-1)) / rows, cellW = (960 - gap*(cols-1))/cols;
+      if(rows < 3){ cellW = Math.min(cellW, cellH/1.5); cellH = cellW*1.5; }   // fewer titles: keep real poster shape
+      var gridW = cols*cellW + (cols-1)*gap, x0 = 540 - gridW/2;
+      var gridH = rows*cellH + (rows-1)*gap, y0 = 420 + (areaH - gridH)/2;
+      for(var i = 0; i < use; i++){ var x = x0 + (i%cols)*(cellW+gap), y = y0 + Math.floor(i/cols)*(cellH+gap); stSharePoster(ctx, imgs, T[i].s, x, y, cellW, cellH, 22, true); if(i === 0) stShareBadge(ctx, '#1', x+16, y+16); }
+      var items = [[hrs,'watched'],[String(st.eps),'episodes'],[String(st.finished.length),'finished'],[genre,'top genre']]; if(!hours) items.shift();
+      var cy = 420 + areaH + 8, cw = (960 - 18*(items.length-1))/items.length;
+      items.forEach(function(it, k){ var cx = 60 + k*(cw+18); stRR(ctx,cx,cy,cw,150,30); ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; stFitFont(ctx, it[0], cw-24, it[0].length > 5 ? 44 : 56, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, it[0], cw-24), cx+cw/2, cy+78);
+        ctx.font = '600 26px Manrope, sans-serif'; ctx.globalAlpha = .8; ctx.fillText(it[1], cx+cw/2, cy+120); ctx.globalAlpha = 1; ctx.textAlign = 'left'; });
+      ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '800 28px Manrope, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('TWATCHED · MY ' + LAB + ' WRAP', 540, 1565); ctx.textAlign = 'left';
+    } else if(stShare.style === 'hero'){
+      var top = T[0], im = imgs[top.s.id];
+      ctx.fillStyle = '#141414'; ctx.fillRect(0,0,1080,1920);
+      if(im){ // soft blurred backdrop: draw tiny, then scale up
+        var tiny = document.createElement('canvas'); tiny.width = 27; tiny.height = 48; var tc = tiny.getContext('2d');
+        var k = Math.max(27/im.width, 48/im.height); tc.drawImage(im, (27-im.width*k)/2, (48-im.height*k)/2, im.width*k, im.height*k);
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(tiny, 0, 0, 1080, 1920);
+      }
+      ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0,0,1080,1920);
+      ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = '800 30px Manrope, sans-serif'; ctx.fillText('MY #1 · ' + LAB, 540, 300);
+      stSharePoster(ctx, imgs, top.s, 290, 340, 500, 750, 32, true);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; stFitFont(ctx, top.s.title, 960, 66, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, top.s.title, 960), 540, 1180);
+      var line = (hours ? stHm(top.mins) : '') + (top.s.type === 'movie' ? (hours ? '' : 'Movie') : ((hours ? ' · ' : '') + top.eps + ' episode' + (top.eps === 1 ? '' : 's')));
+      ctx.font = '600 34px Manrope, sans-serif'; ctx.globalAlpha = .85; ctx.fillText(line, 540, 1236); ctx.globalAlpha = 1;
+      var R = T.slice(1,5), w = 170, h2 = 255, rx = 540 - (R.length*w + (R.length-1)*24)/2;
+      R.forEach(function(t, i){ var x = rx + i*(w+24); stSharePoster(ctx, imgs, t.s, x, 1280, w, h2, 18, true); stShareBadge(ctx, '#' + (i+2), x+10, 1290); });
+      ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '800 26px Manrope, sans-serif';
+      ctx.fillText('TWATCHED' + (hours ? ' · ' + hrs : '') + ' · ' + st.eps + ' EPISODES', 540, R.length ? 1578 : 1320); ctx.textAlign = 'left';
+    } else {
+      var g2 = ctx.createLinearGradient(0,0,0,1920); g2.addColorStop(0,'#E86A8E'); g2.addColorStop(1,'#3C2F6B'); ctx.fillStyle = g2; ctx.fillRect(0,0,1080,1920);
+      var F = T.slice(0,4), sw = (680-24)/2, dy = (2 - Math.ceil(F.length/2)) * (sw+24), up = dy/2;
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 60; ctx.shadowOffsetY = 24; stRR(ctx,150,330+up,780,1140-dy,48); ctx.fillStyle = '#FBF8F2'; ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#6B6F87'; ctx.font = '800 26px Manrope, sans-serif'; ctx.fillText('MY ' + LAB + ' WRAP', 200, 410+up);
+      var head = F.length === 1 ? 'My #1' : 'Top ' + F.length; ctx.fillStyle = '#1B2036'; stFitFont(ctx, head, 680, 60, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, head, 680), 200, 480+up);
+      F.forEach(function(t, j){ var x = 200 + (j%2)*(sw+24) + (F.length === 1 ? (sw+24)/2 : 0), y = 520 + up + Math.floor(j/2)*(sw+24); stSharePoster(ctx, imgs, t.s, x, y, sw, sw, 24, false); stShareBadge(ctx, '#' + (j+1), x+12, y+12); });
+      var it2 = [[hrs,'watched'],[String(st.eps),'episodes'],[genre,'top genre']]; if(!hours) it2.shift();
+      var cw2 = (680 - 20*(it2.length-1))/it2.length;
+      it2.forEach(function(it, i){ var x = 200 + i*(cw2+20); ctx.fillStyle = '#1B2036'; ctx.textAlign = 'center'; stFitFont(ctx, it[0], cw2-10, it[0].length > 5 ? 38 : 50, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, it[0], cw2-10), x+cw2/2, 1300-up); ctx.font = '600 24px Manrope, sans-serif'; ctx.fillStyle = '#6B6F87'; ctx.fillText(it[1], x+cw2/2, 1342-up); });
+      ctx.textAlign = 'center'; ctx.fillStyle = '#A9762A'; ctx.font = '800 24px Manrope, sans-serif'; ctx.fillText('TWATCHED', 540, 1420-up); ctx.textAlign = 'left';
+    }
+  }
+  function stShareGo(){
+    var f = stShare.file; if(!f) return;
+    var files = [f];
+    if(navigator.canShare && navigator.share && navigator.canShare({ files:files })){
+      navigator.share({ files:files }).then(function(){ stShareMsg('Shared.'); }).catch(function(err){
+        stShareMsg(err && err.name === 'AbortError' ? '' : 'Couldn\'t open the share sheet. Use Save image, then add it from Instagram.');
+      });
+    } else stShareMsg('Sharing images isn\'t supported here. Use Save image instead.');
+  }
+  function stShareSave(){
+    var f = stShare.file; if(!f) return;
+    var a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name || 'twatched-wrap.png';
+    document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+    stShareMsg('Saved.');
+  }
   function stShowTip(el, x, y){ stEnsureLayer(); var tip = document.getElementById('stTip'); tip.textContent = el.getAttribute('data-tip'); tip.classList.add('on'); var w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w/2)) + 'px'; tip.style.top = Math.max(8, y - 48) + 'px'; }
   function stHideTip(){ if(stLayer) document.getElementById('stTip').classList.remove('on'); }
   document.addEventListener('pointermove', function(e){ if(e.pointerType !== 'mouse') return; var el = e.target.closest && e.target.closest('[data-tip]'); if(el) stShowTip(el, e.clientX, e.clientY); else stHideTip(); });
   var stTipTimer = null;
   document.addEventListener('pointerdown', function(e){ var el = e.target.closest && e.target.closest('[data-tip]'); if(el && e.pointerType !== 'mouse'){ stShowTip(el, e.clientX, e.clientY); clearTimeout(stTipTimer); stTipTimer = setTimeout(stHideTip, 1600); } });
-  document.addEventListener('keydown', function(e){ if(!stLayer || !document.getElementById('stStory').classList.contains('on')) return; if(e.key === 'ArrowRight') stStoryNav(1); if(e.key === 'ArrowLeft') stStoryNav(-1); if(e.key === 'Escape') stCloseStory(); });
+  document.addEventListener('keydown', function(e){ if(!stLayer || !document.getElementById('stStory').classList.contains('on')) return; if(stShare.open){ if(e.key === 'Escape') stShareClose(); return; } if(e.key === 'ArrowRight') stStoryNav(1); if(e.key === 'ArrowLeft') stStoryNav(-1); if(e.key === 'Escape') stCloseStory(); });
   function statsResetPeriod(){ state.statsMode = 'month'; state.statsAnchor = Date.now(); }
 
   function renderStatsSafe(){
@@ -2081,6 +2234,21 @@
         stStoryNav(-1); break;
       case 'story-close':
         stCloseStory(); break;
+      case 'wrap-share':
+        stShareOpen(); break;
+      case 'share-close':
+        stShareClose(); break;
+      case 'share-style':
+        stShare.style = btn.getAttribute('data-value');
+        Array.prototype.forEach.call(document.querySelectorAll('#stShare .st-share-styles button'), function(b){ b.classList.toggle('on', b === btn); });
+        stShareDraw(); break;
+      case 'share-hours':
+        stShare.hours = !stShare.hours; btn.classList.toggle('on', stShare.hours); btn.setAttribute('aria-pressed', String(stShare.hours));
+        stShareDraw(); break;
+      case 'share-save':
+        stShareSave(); break;
+      case 'share-go':
+        stShareGo(); break;
       case 'check-episode':
         checkEpisode(btn.getAttribute('data-show')); break;
       case 'uncheck-episode':
