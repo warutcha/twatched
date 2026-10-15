@@ -61,7 +61,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.11.0';
+  var APP_VERSION = 'v2.11.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -906,21 +906,21 @@
   function stWrapCards(st){
     var T = st.ranked, lab = state.statsMode === 'all' ? 'All-time' : statsShortLabel().charAt(0).toUpperCase() + statsShortLabel().slice(1), c = [];
     var tiles = ''; for(var k = 0; k < 40; k++) tiles += stPoster(T[k % T.length].s);
-    c.push({ html:'<div class="st-bgfill"><div class="st-mosaic">' + tiles + '</div><div class="st-shade"></div></div><div style="margin-top:auto"><div class="st-k">Your ' + stEsc(lab) + ' wrap</div><div class="st-big">' + stHm(st.mins) + '</div><div class="st-p">of watching, across ' + T.length + ' title' + (T.length === 1 ? '' : 's') + '.' + (st.estMins ? ' (≈' + stHm(st.estMins) + ' estimated)' : '') + '</div></div>' });
-    c.push({ bg:'linear-gradient(160deg,#3C2F6B,#1B2036)', html:'<div class="st-k">By the numbers</div><div class="st-h">' + st.eps + ' episode' + (st.eps === 1 ? '' : 's') + (st.movies ? ', ' + st.movies + ' movie' + (st.movies > 1 ? 's' : '') : '') + '</div><div class="st-p">All ' + T.length + ' title' + (T.length === 1 ? '' : 's') + ' you watched, most-watched first.</div><div class="st-strip">' + T.slice(0,15).map(function(t){ return stPoster(t.s); }).join('') + '</div>' + (T.length > 15 ? '<p class="st-p" style="margin-top:8px">+' + (T.length-15) + ' more</p>' : '') });
+    c.push({ edge:'#0B1E28', html:'<div class="st-bgfill"><div class="st-mosaic">' + tiles + '</div><div class="st-shade"></div></div><div style="margin-top:auto"><div class="st-k">Your ' + stEsc(lab) + ' wrap</div><div class="st-big">' + stHm(st.mins) + '</div><div class="st-p">of watching, across ' + T.length + ' title' + (T.length === 1 ? '' : 's') + '.' + (st.estMins ? ' (≈' + stHm(st.estMins) + ' estimated)' : '') + '</div></div>' });
+    c.push({ edge:'#1B2036', bg:'linear-gradient(160deg,#3C2F6B,#1B2036)', html:'<div class="st-k">By the numbers</div><div class="st-h">' + st.eps + ' episode' + (st.eps === 1 ? '' : 's') + (st.movies ? ', ' + st.movies + ' movie' + (st.movies > 1 ? 's' : '') : '') + '</div><div class="st-p">All ' + T.length + ' title' + (T.length === 1 ? '' : 's') + ' you watched, most-watched first.</div><div class="st-strip st-fit">' + T.slice(0,15).map(function(t){ return stPoster(t.s); }).join('') + '</div>' + (T.length > 15 ? '<p class="st-p" style="margin-top:8px">+' + (T.length-15) + ' more</p>' : '') });
     var top = T[0], ts = top.s;
-    c.push({ html:'<div class="st-bgfill">' + (ts.posterImage ? '<div class="st-blurbg" style="background-image:url(' + ts.posterImage + ')"></div>' : '<div class="st-blurbg" style="' + posterStyle(ts) + '"></div>') + '</div><div class="st-k">Your #1</div>' + stPoster(ts, '', 'width:56%;margin:12px auto 12px;border-radius:14px;') +
+    c.push({ edge:'#141414', html:'<div class="st-bgfill">' + (ts.posterImage ? '<div class="st-blurbg" style="background-image:url(' + ts.posterImage + ')"></div>' : '<div class="st-blurbg" style="' + posterStyle(ts) + '"></div>') + '</div><div class="st-k">Your #1</div>' + stPoster(ts, '', 'width:56%;margin:12px auto 12px;border-radius:14px;').replace('class="st-pst"', 'class="st-pst st-fit"') +
       '<div class="st-h" style="text-align:center;font-size:24px;margin:0">' + stEsc(ts.title) + '</div><div class="st-p" style="text-align:center">' + stHm(top.mins) + (ts.type === 'movie' ? '' : ' · ' + top.eps + ' episode' + (top.eps === 1 ? '' : 's')) + '</div>' +
       (T.length > 1 ? '<div class="st-runners">' + T.slice(1,5).map(function(t, n){ return '<div>' + stPoster(t.s, '<span class="st-badge">#' + (n+2) + '</span>') + stHm(t.mins) + '</div>'; }).join('') + '</div>' : '') });
-    if(st.genres.length) c.push({ bg:'linear-gradient(160deg,#A9762A,#4A2F0A)', html:'<div class="st-k">Your taste</div><div class="st-h">You\'re a ' + stEsc(st.genres[0].name) + (st.genres[1] ? ' &amp; ' + stEsc(st.genres[1].name) : '') + ' person</div>' +
+    if(st.genres.length) c.push({ edge:'#4A2F0A', bg:'linear-gradient(160deg,#A9762A,#4A2F0A)', html:'<div class="st-k">Your taste</div><div class="st-h">You\'re a ' + stEsc(st.genres[0].name) + (st.genres[1] ? ' &amp; ' + stEsc(st.genres[1].name) : '') + ' person</div>' +
       st.genres.slice(0,4).map(function(g){ return '<div class="st-gen"><div class="st-stack">' + g.ids.slice(0,3).map(function(id, n){ return stPoster(st.titles[id].s, '', 'left:' + (n*22) + 'px;transform:rotate(' + ((n-1)*6) + 'deg);z-index:' + (3-n) + ';'); }).join('') + '</div><div><b>' + stEsc(g.name) + '</b><span>' + stHm(g.m) + ' · ' + g.ids.length + ' title' + (g.ids.length === 1 ? '' : 's') + '</span></div></div>'; }).join('') });
     var F = st.finished, sh = F.slice(0,6), n = sh.length;
-    c.push({ bg:'linear-gradient(160deg,#16786F,#0B3D38)', html:'<div class="st-k">Finished</div><div class="st-h">' + (n ? 'You wrapped up ' + F.length + ' title' + (F.length === 1 ? '' : 's') : 'Nothing finished yet') + '</div>' +
-      (n ? '<div class="st-fan">' + sh.map(function(id, k){ var a = (k - (n-1)/2) * (n > 4 ? 11 : 14); return stPoster(st.titles[id].s, '<span class="st-chk">✓</span>', 'transform:translateX(-50%) rotate(' + a + 'deg);z-index:' + k + ';'); }).join('') + '</div>' : '<p class="st-p">Keep going. Your next finale is coming.</p>') +
+    c.push({ edge:'#0B3D38', bg:'linear-gradient(160deg,#16786F,#0B3D38)', html:'<div class="st-k">Finished</div><div class="st-h">' + (n ? 'You wrapped up ' + F.length + ' title' + (F.length === 1 ? '' : 's') : 'Nothing finished yet') + '</div>' +
+      (n ? '<div class="st-fan st-fit st-fit-h">' + sh.map(function(id, k){ var a = (k - (n-1)/2) * (n > 4 ? 11 : 14); return stPoster(st.titles[id].s, '<span class="st-chk">✓</span>', 'transform:translateX(-50%) rotate(' + a + 'deg);z-index:' + k + ';'); }).join('') + '</div>' : '<p class="st-p">Keep going. Your next finale is coming.</p>') +
       (F.length > 6 ? '<p class="st-more">+' + (F.length-6) + ' more</p>' : '') + '<p class="st-p" style="text-align:center">' + sh.map(function(id){ return stEsc(st.titles[id].s.title); }).join(' · ') + '</p>' });
     var cnt = Math.min(9, T.length), use = cnt <= 6 ? cnt : (cnt >= 9 ? 9 : 6), cols = use <= 1 ? 1 : use <= 3 ? use : use === 4 ? 2 : 3;
-    c.push({ bg:'linear-gradient(165deg,#1B2036,#3C2F6B 60%,#A9762A)', html:'<div class="st-k">' + stEsc(lab) + ' · TWatched</div><div class="st-h" style="margin-bottom:0">My ' + stEsc(lab) + ' in posters</div>' +
-      '<div class="st-sgrid" style="grid-template-columns:repeat(' + cols + ',1fr);' + (use === 1 ? 'width:55%;margin-left:auto;margin-right:auto' : '') + '">' + T.slice(0, use).map(function(t, k){ return stPoster(t.s, k === 0 ? '<span class="st-badge">#1</span>' : ''); }).join('') + '</div>' +
+    c.push({ edge:'#A9762A', bg:'linear-gradient(165deg,#1B2036,#3C2F6B 60%,#A9762A)', html:'<div class="st-k">' + stEsc(lab) + ' · TWatched</div><div class="st-h" style="margin-bottom:0">My ' + stEsc(lab) + ' in posters</div>' +
+      '<div class="st-sgrid st-fit" style="grid-template-columns:repeat(' + cols + ',1fr);' + (use === 1 ? 'width:55%;margin-left:auto;margin-right:auto' : '') + '">' + T.slice(0, use).map(function(t, k){ return stPoster(t.s, k === 0 ? '<span class="st-badge">#1</span>' : ''); }).join('') + '</div>' +
       '<div class="st-stats4"><div><b>' + Math.round(st.mins/60) + 'h</b><span>watched</span></div><div><b>' + st.eps + '</b><span>episodes</span></div><div><b>' + st.finished.length + '</b><span>finished</span></div><div><b class="sm">' + stEsc(st.genres[0] ? st.genres[0].name : '—') + '</b><span>top genre</span></div></div>' +
       '<div class="st-brand"><span>TWatched</span><span>Screenshot to share</span></div>' });
     return c;
@@ -934,10 +934,34 @@
   function stShowStory(){
     clearTimeout(stStory.timer);
     var c = stStory.cards[stStory.i];
-    document.getElementById('stStory').innerHTML = '<div class="st-scard" style="' + (c.bg ? 'background:' + c.bg : '') + '"><div class="st-sbars">' + stStory.cards.map(function(x, k){ return '<span class="' + (k < stStory.i ? 'done' : k === stStory.i ? 'cur' : '') + '"><i></i></span>'; }).join('') + '</div>' +
+    var host = document.getElementById('stStory');
+    host.style.setProperty('--st-edge', c.edge || '#000');
+    host.innerHTML = '<div class="st-scard" style="' + (c.bg ? 'background:' + c.bg : '') + '"><div class="st-sbars">' + stStory.cards.map(function(x, k){ return '<span class="' + (k < stStory.i ? 'done' : k === stStory.i ? 'cur' : '') + '"><i></i></span>'; }).join('') + '</div>' +
       '<button type="button" class="st-sx" data-action="story-close" aria-label="Close">' + icon('close') + '</button><div class="st-tapL" data-action="story-prev"></div><div class="st-tapR" data-action="story-next"></div>' + c.html + '</div>';
+    stFitCard();
     stStory.timer = setTimeout(function(){ stStoryNav(1); }, 7000);
   }
+  // Short screens: shrink the poster block of the current card (a little at a time) until
+  // nothing reaches past the card's bottom padding, so no text is ever cut off.
+  function stFitCard(){
+    var card = document.querySelector('#stStory .st-scard'); if(!card) return;
+    var fits = card.querySelectorAll('.st-fit'); if(!fits.length) return;
+    function overflow(){
+      var cr = card.getBoundingClientRect(), limit = cr.bottom - parseFloat(getComputedStyle(card).paddingBottom), worst = 0;
+      Array.prototype.forEach.call(card.children, function(el){
+        if(/st-bgfill|st-sbars|st-tapL|st-tapR|st-sx/.test(el.className)) return;
+        var b = el.getBoundingClientRect().bottom; if(b - limit > worst) worst = b - limit;
+      });
+      return worst;
+    }
+    for(var guard = 0; guard < 40 && overflow() > 0.5; guard++){
+      Array.prototype.forEach.call(fits, function(el){
+        if(el.classList.contains('st-fit-h')) el.style.height = Math.max(120, el.offsetHeight * 0.93) + 'px';
+        else { el.style.width = Math.max(60, el.offsetWidth * 0.93) + 'px'; el.style.marginLeft = 'auto'; el.style.marginRight = 'auto'; }
+      });
+    }
+  }
+  window.addEventListener('resize', function(){ if(stLayer && document.getElementById('stStory').classList.contains('on')){ clearTimeout(stStory.timer); stShowStory(); } });
   function stStoryNav(d){ stStory.i += d; if(stStory.i < 0) stStory.i = 0; if(stStory.i >= stStory.cards.length){ stCloseStory(); return; } stShowStory(); }
   function stCloseStory(){ clearTimeout(stStory.timer); if(!stLayer) return; var s = document.getElementById('stStory'); s.classList.remove('on'); s.innerHTML = ''; document.documentElement.classList.remove('st-story-open'); }
   function stShowTip(el, x, y){ stEnsureLayer(); var tip = document.getElementById('stTip'); tip.textContent = el.getAttribute('data-tip'); tip.classList.add('on'); var w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w/2)) + 'px'; tip.style.top = Math.max(8, y - 48) + 'px'; }
