@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.13.0';
+  var APP_VERSION = 'v2.13.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1036,6 +1036,31 @@
       }, 'image/png');
     });
   }
+  // Blurred poster filling the whole 1080×1920 image. The blur is done on the pixels themselves (a quarter-size
+  // copy, blurred three times), so the result is smooth on every phone. The old way, blowing up a 27×48 thumbnail,
+  // showed big square blocks on iPhone, whose browser doesn't smooth that much enlargement.
+  function stBoxBlur(px, w, h, r){
+    var tmp = new Uint8ClampedArray(px.length), n = r*2 + 1, x, y, c, i, sum, a, b;
+    for(y = 0; y < h; y++){ var row = y*w*4;
+      for(c = 0; c < 4; c++){ sum = 0;
+        for(i = -r; i <= r; i++) sum += px[row + Math.min(w-1, Math.max(0, i))*4 + c];
+        for(x = 0; x < w; x++){ tmp[row + x*4 + c] = sum / n; a = Math.min(w-1, x + r + 1); b = Math.max(0, x - r); sum += px[row + a*4 + c] - px[row + b*4 + c]; } } }
+    for(x = 0; x < w; x++){
+      for(c = 0; c < 4; c++){ sum = 0;
+        for(i = -r; i <= r; i++) sum += tmp[Math.min(h-1, Math.max(0, i))*w*4 + x*4 + c];
+        for(y = 0; y < h; y++){ px[y*w*4 + x*4 + c] = sum / n; a = Math.min(h-1, y + r + 1); b = Math.max(0, y - r); sum += tmp[a*w*4 + x*4 + c] - tmp[b*w*4 + x*4 + c]; } } }
+  }
+  function stBlurBackdrop(ctx, im){
+    var W = 270, H = 480, t = document.createElement('canvas'); t.width = W; t.height = H;
+    var tc = t.getContext('2d'), k = Math.max(W/im.width, H/im.height);
+    tc.imageSmoothingEnabled = true; tc.imageSmoothingQuality = 'high';
+    tc.drawImage(im, (W-im.width*k)/2, (H-im.height*k)/2, im.width*k, im.height*k);
+    try { var d = tc.getImageData(0, 0, W, H); for(var p = 0; p < 3; p++) stBoxBlur(d.data, W, H, 9); tc.putImageData(d, 0, 0); } catch(e){}
+    // enlarge in two gentle steps (2× each) instead of one big jump
+    var m = document.createElement('canvas'); m.width = W*2; m.height = H*2; var mc = m.getContext('2d');
+    mc.imageSmoothingEnabled = true; mc.imageSmoothingQuality = 'high'; mc.drawImage(t, 0, 0, W*2, H*2);
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(m, 0, 0, 1080, 1920); ctx.restore();
+  }
   function stRR(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
   function stFitFont(ctx, text, maxW, size, weight, family){
     var min = Math.max(20, Math.round(size*0.6));
@@ -1080,11 +1105,7 @@
     } else if(stShare.style === 'hero'){
       var top = T[0], im = imgs[top.s.id];
       ctx.fillStyle = '#141414'; ctx.fillRect(0,0,1080,1920);
-      if(im){ // soft blurred backdrop: draw tiny, then scale up
-        var tiny = document.createElement('canvas'); tiny.width = 27; tiny.height = 48; var tc = tiny.getContext('2d');
-        var k = Math.max(27/im.width, 48/im.height); tc.drawImage(im, (27-im.width*k)/2, (48-im.height*k)/2, im.width*k, im.height*k);
-        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(tiny, 0, 0, 1080, 1920);
-      }
+      if(im) stBlurBackdrop(ctx, im);
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0,0,1080,1920);
       ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = '800 30px Manrope, sans-serif'; ctx.fillText('MY #1 · ' + LAB, 540, 300);
       stSharePoster(ctx, imgs, top.s, 290, 340, 500, 750, 32, true);
@@ -1182,10 +1203,9 @@
     var show = getShow(stShare.showId); if(!show) return;
     var o = stShare.opt, movie = show.type === 'movie', ep = stShare.mode === 'ep' ? stShare.ep : 0, total = show.totalEpisodes || 0;
     ctx.clearRect(0,0,1080,1920); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    // soft blurred backdrop: the poster drawn tiny, then scaled up
+    // soft blurred backdrop of the poster
     ctx.fillStyle = '#141414'; ctx.fillRect(0,0,1080,1920);
-    if(im){ var t = document.createElement('canvas'); t.width = 27; t.height = 48; var tc = t.getContext('2d'), k = Math.max(27/im.width, 48/im.height);
-      tc.drawImage(im, (27-im.width*k)/2, (48-im.height*k)/2, im.width*k, im.height*k); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(t, 0, 0, 1080, 1920); }
+    if(im) stBlurBackdrop(ctx, im);
     else { var g0 = GRADIENTS[(show.posterIndex||0) % GRADIENTS.length], bg = ctx.createLinearGradient(0,0,1080,1920); bg.addColorStop(0,g0[0]); bg.addColorStop(1,g0[1]); ctx.fillStyle = bg; ctx.fillRect(0,0,1080,1920); }
     ctx.fillStyle = 'rgba(0,0,0,.48)'; ctx.fillRect(0,0,1080,1920);
     var sh = ctx.createLinearGradient(0,1000,0,1920); sh.addColorStop(0,'rgba(0,0,0,0)'); sh.addColorStop(1,'rgba(0,0,0,.55)'); ctx.fillStyle = sh; ctx.fillRect(0,1000,1080,920);
