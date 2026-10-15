@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.13.1';
+  var APP_VERSION = 'v2.13.2';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1252,11 +1252,21 @@
     var f = stShare.file; if(!f) return;
     var files = [f];
     if(navigator.canShare && navigator.share && navigator.canShare({ files:files })){
-      navigator.share({ files:files }).then(function(){ stShareMsg('Shared.'); }).catch(function(err){
+      // After a successful share (e.g. to Instagram and back) the sheet closes by itself, so you land on
+      // exactly the screen you shared from. Cancelling the iPhone share sheet keeps it open.
+      stShare.pending = true; stShare.left = false;
+      navigator.share({ files:files }).then(function(){ stShare.pending = false; stShare.left = false; stShareMsg(''); stShareClose(); }).catch(function(err){
+        stShare.pending = false;
+        if(stShare.left){ stShare.left = false; stShareClose(); return; }   // went to another app and came back
         stShareMsg(err && err.name === 'AbortError' ? '' : 'Couldn\'t open the share sheet. Use Save image, then add it from Instagram.');
       });
     } else stShareMsg('Sharing images isn\'t supported here. Use Save image instead.');
   }
+  // Backup for the auto-close: if the app was left while sharing (another app opened), close the sheet on return.
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'hidden'){ if(stShare.pending) stShare.left = true; }
+    else if(stShare.left && stShare.open){ stShare.left = false; stShareClose(); }
+  });
   function stShareSave(){
     var f = stShare.file; if(!f) return;
     var a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name || 'twatched-wrap.png';
