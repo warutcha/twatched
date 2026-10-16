@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.15.0';
+  var APP_VERSION = 'v2.15.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1269,7 +1269,9 @@
           y += 44; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '700 30px Manrope, sans-serif'; ctx.fillText(show.watched + ' of ' + total + ' episodes' + (mins ? ' · ' + stHm(mins) : ''), 540, y); }
       }
     }
-    ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '800 26px Manrope, sans-serif'; stSpaced(ctx, 6); ctx.fillText('TWATCHED', 540, Math.min(1572, Math.max(y + 80, 1500))); stSpaced(ctx, 0);
+    // Always centred: the feelings chips leave the alignment on "left", and with Progress & time switched off
+    // nothing after them set it back, so the name slid to the right.
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '800 26px Manrope, sans-serif'; stSpaced(ctx, 6); ctx.fillText('TWATCHED', 540, Math.min(1572, Math.max(y + 80, 1500))); stSpaced(ctx, 0);
     ctx.textAlign = 'left';
   }
   function stShareGo(){
