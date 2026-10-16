@@ -535,6 +535,19 @@
   .st-gbar{ height:10px; border-radius:0 4px 4px 0; background:var(--st-bar); cursor:pointer; }
   .st-note{ font-size:11.5px; color:var(--text-muted); line-height:1.5; margin:6px 0 0; }
   .st-note--row{ margin:-3px 0 6px 88px; }
+  /* rows that share one grid: name | bar lane | value. The value column is as wide as its widest value,
+     names are capped and cut with "…", and bars can never leave their lane. */
+  .st-rows{ display:grid; grid-template-columns:minmax(0,max-content) minmax(40px,1fr) max-content; column-gap:8px; align-items:center; font-size:12px; }
+  .st-rows > .st-row{ display:contents; }
+  .st-rows > .st-row > *{ margin:7px 0; }
+  .st-rows .nm{ max-width:110px; }
+  .st-rows .val{ white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .st-lane{ min-width:0; overflow:hidden; }
+  .st-lane > .st-gbar, .st-lane > .st-track{ max-width:100%; }
+  .st-rows > .st-note--row{ grid-column:2 / -1; margin:-3px 0 6px; }
+  .st-more{ grid-column:1 / -1; display:flex; justify-content:space-between; align-items:center; gap:10px; width:100%; margin:6px 0 2px; padding:9px 11px; border:1px dashed var(--border); border-radius:10px;
+    background:var(--surface-2); color:var(--text); font-family:inherit; font-size:12px; cursor:pointer; text-align:left; }
+  .st-more b{ font-weight:700; } .st-more span{ color:var(--text-muted); font-weight:700; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .st-list{ margin:0; padding:0; list-style:none; }
   .st-list li{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--st-grid); font-size:12.5px; }
   .st-list li:last-child{ border-bottom:none; }
@@ -551,14 +564,17 @@
   .st-ini{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-style:italic; font-size:20px; color:#fff; }
   .st-badge{ position:absolute; top:6px; left:6px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; font-weight:800; padding:2px 7px; border-radius:999px; }
   .st-chk{ position:absolute; right:6px; bottom:6px; width:22px; height:22px; border-radius:50%; background:#16786F; color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; font-weight:800; }
-  .st-hm{ display:grid; grid-template-columns:34px repeat(12,1fr) 40px; gap:3px; align-items:center; }
+  .st-hm{ display:grid; grid-template-columns:34px repeat(12,minmax(0,1fr)) minmax(40px,max-content); gap:3px; align-items:center; }
   .st-hm .yl{ font-size:11px; font-weight:800; }
   .st-hm .ml{ font-size:9.5px; color:var(--text-muted); text-align:center; font-weight:700; }
   .st-hm .c{ aspect-ratio:1/1.15; border-radius:6px; background:var(--st-q0); position:relative; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:9px; overflow:hidden; border:none; padding:0; font-family:inherit; color:var(--text); }
   .st-hm .c.est::after{ content:""; position:absolute; inset:0; background:repeating-linear-gradient(45deg,rgba(255,255,255,.32) 0 2px,transparent 2px 6px); }
   .st-hm .c b{ position:relative; z-index:1; font-weight:800; text-shadow:0 0 3px rgba(0,0,0,.35); }
+  .st-hm .c{ container-type:inline-size; }
+  @container (max-width:17px){ .st-hm .c b.l3{ display:none; } }
+  @container (max-width:12px){ .st-hm .c b.l2{ display:none; } }
   .st-hm .c.future{ background:none; border:1px dashed var(--border); cursor:default; }
-  .st-hm .yt{ font-size:11px; font-weight:800; color:var(--text-muted); text-align:right; }
+  .st-hm .yt{ font-size:11px; font-weight:800; color:var(--text-muted); text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .st-scale{ display:flex; align-items:center; gap:4px; font-size:10.5px; color:var(--text-muted); justify-content:flex-end; margin-top:10px; flex-wrap:wrap; }
   .st-scale i{ width:14px; height:14px; border-radius:4px; display:inline-block; }
   .screen-pad svg text{ font-family:var(--font-body); }
@@ -664,6 +680,8 @@
   .st-stats4 div{ background:rgba(255,255,255,.12); border-radius:12px; padding:9px 4px; text-align:center; min-width:0; }
   .st-stats4 b{ display:block; font-family:var(--font-display); font-size:19px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .st-stats4 b.sm{ font-size:13px; line-height:1.95; }
+  /* long genre names wrap to a second line instead of being cut off (narrow phones) */
+  .st-stats4 b.sm.st-wrap2{ white-space:normal; overflow-wrap:anywhere; line-height:1.15; font-size:12px; min-height:2.3em; display:flex; align-items:center; justify-content:center; }
   .st-stats4 span{ font-size:10px; opacity:.8; }
   .st-brand{ display:flex; justify-content:space-between; font-size:11px; opacity:.7; font-weight:700; margin-top:10px; }
 </style>
@@ -677,6 +695,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=220"></script>
+<script src="app.js?v=221"></script>
 </body>
 </html>

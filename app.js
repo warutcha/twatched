@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.14.0';
+  var APP_VERSION = 'v2.15.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -629,6 +629,8 @@
   var ST_DOWL = ['Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'];
   var ST_STATUS = [['Finished','--st-s4'],['Caught up','--st-s3'],['In progress','--st-s2'],['Not started','--st-s1']];
   function stEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  // Chart values: exact under 100 h, then whole hours with a thousands comma, so the number column stays short.
+  function stHmS(m){ m = Math.round(m); return m >= 6000 ? Math.round(m/60).toLocaleString('en-US') + 'h' : stHm(m); }
   function stHm(m){ m = Math.round(m); var h = Math.floor(m/60), mm = m % 60; return h ? h + 'h' + (mm ? ' ' + mm + 'm' : '') : mm + 'm'; }
   function stAddDays(d, n){ var x = new Date(d); x.setDate(x.getDate() + n); return x; }
   function stMonday(d){ var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
@@ -745,7 +747,9 @@
     return '<div class="st-pst" style="' + (style || '') + (s.posterImage ? '' : posterStyle(s)) + '">' + img + (extra || '') + '</div>';
   }
   function stRoundTop(x,y,w,h,r){ r = Math.min(r,h); return 'M'+x+','+(y+h)+'V'+(y+r)+'Q'+x+','+y+' '+(x+r)+','+y+'H'+(x+w-r)+'Q'+(x+w)+','+y+' '+(x+w)+','+(y+r)+'V'+(y+h)+'Z'; }
-  function stTicks(maxH){ var sH = maxH<=2?0.5: maxH<=5?1: maxH<=12?2: maxH<=30?5: maxH<=60?10: maxH<=150?25:50; var t=[0]; while(t[t.length-1] < maxH) t.push(+(t[t.length-1]+sH).toFixed(1)); return t; }
+  // Above 250 h a bigger step keeps it to about 5 grid lines, however large the numbers get (it was every 50 h before).
+  function stTickStep(maxH){ var steps = [50,100,200,250,500], m = 1; for(;;){ for(var i = 0; i < steps.length; i++) if(maxH / (steps[i]*m) <= 5) return steps[i]*m; m *= 10; } }
+  function stTicks(maxH){ var sH = maxH<=2?0.5: maxH<=5?1: maxH<=12?2: maxH<=30?5: maxH<=60?10: maxH<=150?25: stTickStep(maxH); var t=[0]; while(t[t.length-1] < maxH) t.push(+(t[t.length-1]+sH).toFixed(1)); return t; }
 
   function renderStats(){
     var st = statsCompute();
@@ -782,10 +786,12 @@
     else { for(var m = new Date(r.s); m < r.e; m = new Date(m.getFullYear(), m.getMonth()+1, 1)) b.push({ s:new Date(m), e:new Date(m.getFullYear(), m.getMonth()+1, 1), lab: ST_MON[m.getMonth()].charAt(0), long: ST_MONL[m.getMonth()] + ' ' + m.getFullYear() }); }
     b.forEach(function(x){ x.mins = 0; x.est = 0; x.n = 0; st.entries.forEach(function(e){ if(e.ts >= x.s && e.ts < x.e){ x.mins += e.mins; x.n++; if(e.est) x.est += e.mins; } }); });
     var max = Math.max.apply(null, b.map(function(x){ return x.mins; })) || 1;
-    var W = 340, H = 132, pl = 28, pb = 18, pt = 8, cw = (W-pl)/b.length, bw = Math.max(3, Math.min(24, cw-2)), plotH = H-pb-pt, base = H-pb;
-    var ticks = stTicks(max/60), top = ticks[ticks.length-1]*60 || 1, every = b.length > 16 ? 5 : 1;
+    var ticks = stTicks(max/60), tickLab = ticks.map(function(t){ return Number(t).toLocaleString('en-US') + 'h'; });
+    var labLen = Math.max.apply(null, tickLab.map(function(l){ return l.length; }));   // wider labels (e.g. "1,000h") get more room
+    var W = 340, H = 132, pl = Math.max(28, Math.ceil(8 + 5.5*labLen)), pb = 18, pt = 8, cw = (W-pl)/b.length, bw = Math.max(3, Math.min(24, cw-2)), plotH = H-pb-pt, base = H-pb;
+    var top = ticks[ticks.length-1]*60 || 1, every = b.length > 16 ? 5 : 1;
     var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Hours watched per ' + (byDay ? 'day' : 'month') + '">' + stHatchDefs();
-    ticks.forEach(function(t){ var y = pt + plotH*(1 - t*60/top); svg += '<line x1="' + pl + '" x2="' + W + '" y1="' + y + '" y2="' + y + '" style="stroke:var(--st-grid)"/><text x="' + (pl-6) + '" y="' + (y+3.5) + '" font-size="9.5" text-anchor="end" style="fill:var(--text-muted)">' + t + 'h</text>'; });
+    ticks.forEach(function(t, ti){ var y = pt + plotH*(1 - t*60/top); svg += '<line x1="' + pl + '" x2="' + W + '" y1="' + y + '" y2="' + y + '" style="stroke:var(--st-grid)"/><text x="' + (pl-6) + '" y="' + (y+3.5) + '" font-size="9.5" text-anchor="end" style="fill:var(--text-muted)">' + tickLab[ti] + '</text>'; });
     b.forEach(function(x, i){
       var cx = pl + cw*i + cw/2, hh = plotH*(x.mins/top), y = base - hh, he = plotH*(x.est/top);
       if(x.mins){
@@ -803,6 +809,9 @@
   function stHatchDefs(){
     return '<defs><pattern id="stHatch" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)"><rect width="5" height="5" style="fill:var(--st-bar);opacity:.28"/><line x1="0" y1="0" x2="0" y2="5" style="stroke:var(--st-bar);stroke-width:2.4"/></pattern></defs>';
   }
+  // Hours printed inside a heatmap month: "8", "120", "3k". If a cell is too narrow for it, CSS hides it
+  // (the tooltip still has the exact time), so it never spills out of the square.
+  function stHeatLabel(m){ var h = Math.round(m/60), t = h < 1000 ? String(h) : Math.round(h/1000) + 'k'; return '<b class="l' + Math.min(3, t.length) + '">' + t + '</b>'; }
   function stHeatmapCard(st){
     var log = st.log, months = {}, maxM = 1, years = [], now = new Date();
     log.forEach(function(x){ var k = x.ts.getFullYear() + '-' + x.ts.getMonth(); var b = months[k] || (months[k] = { mins:0, est:0, n:0 }); b.mins += x.mins; b.n++; if(x.est) b.est += x.mins; if(b.mins > maxM) maxM = b.mins; });
@@ -817,9 +826,9 @@
         if(start > now){ h += '<span class="c future"></span>'; continue; }
         if(!b){ h += '<button type="button" class="c" data-action="stats-heat" data-value="' + y + '-' + k + '" data-tip="' + ST_MONL[k] + ' ' + y + ' · nothing watched"></button>'; continue; }
         tot += b.mins; var L = Math.min(4, Math.floor(b.mins/maxM*5));
-        h += '<button type="button" class="c' + (b.est >= b.mins/2 && b.mins ? ' est' : '') + '" data-action="stats-heat" data-value="' + y + '-' + k + '" style="background:var(' + steps[L] + ');color:' + (L >= 2 ? '#fff' : 'var(--text)') + '" data-tip="' + stEsc(ST_MONL[k] + ' ' + y + ' · ' + stHm(b.mins) + (b.est ? ' · ' + stHm(b.est) + ' estimated' : '') + ' · tap to open') + '">' + (b.mins >= 300 ? '<b>' + Math.round(b.mins/60) + '</b>' : '') + '</button>';
+        h += '<button type="button" class="c' + (b.est >= b.mins/2 && b.mins ? ' est' : '') + '" data-action="stats-heat" data-value="' + y + '-' + k + '" style="background:var(' + steps[L] + ');color:' + (L >= 2 ? '#fff' : 'var(--text)') + '" data-tip="' + stEsc(ST_MONL[k] + ' ' + y + ' · ' + stHm(b.mins) + (b.est ? ' · ' + stHm(b.est) + ' estimated' : '') + ' · tap to open') + '">' + (b.mins >= 300 ? stHeatLabel(b.mins) : '') + '</button>';
       }
-      h += '<span class="yt">' + Math.round(tot/60) + 'h</span>';
+      h += '<span class="yt">' + Math.round(tot/60).toLocaleString('en-US') + 'h</span>';
     });
     var bp = busy.split('-');
     h += '</div><div class="st-scale">0h <i style="background:var(--st-q0)"></i>' + steps.map(function(s){ return '<i style="background:var(' + s + ')"></i>'; }).join('') + ' ' + Math.round(maxM/60) + 'h · striped = mostly estimated</div>';
@@ -829,41 +838,43 @@
     var cats = statsCategories().filter(function(c){ return st.status[c]; }); if(!cats.length) return '';
     var max = Math.max.apply(null, cats.map(function(c){ return Object.keys(st.status[c]).reduce(function(a,k){ return a + st.status[c][k]; }, 0); }));
     var h = '<div class="st-card"><h3>Your list by status</h3><p class="st-sub">Where each title stood at the end of ' + stEsc(statsShortLabel()) + '</p><div class="st-legend">' +
-      ST_STATUS.map(function(s){ return '<span><i style="background:var(' + s[1] + ')"></i>' + s[0] + '</span>'; }).join('') + '</div>';
+      ST_STATUS.map(function(s){ return '<span><i style="background:var(' + s[1] + ')"></i>' + s[0] + '</span>'; }).join('') + '</div><div class="st-rows">';
     cats.forEach(function(c){
       var o = st.status[c], tot = 0; ST_STATUS.forEach(function(s){ tot += o[s[0]] || 0; });
       var parts = ST_STATUS.filter(function(s){ return o[s[0]]; });
-      h += '<div class="st-row"><span class="nm">' + stEsc(statsCatLabel(c)) + '</span><div class="st-track" style="width:' + (tot/max*100) + '%">' +
+      h += '<div class="st-row"><span class="nm" title="' + stEsc(statsCatLabel(c)) + '">' + stEsc(statsCatLabel(c)) + '</span><div class="st-lane"><div class="st-track" style="width:' + Math.min(100, tot/max*100) + '%">' +
         parts.map(function(s){ return '<span style="flex:' + o[s[0]] + ';background:var(' + s[1] + ')" data-tip="' + stEsc(statsCatLabel(c) + ' · ' + s[0] + ': ' + o[s[0]]) + '"></span>'; }).join('') +
-        '</div><span class="val">' + tot + ' title' + (tot === 1 ? '' : 's') + '</span></div><p class="st-note st-note--row">' + parts.map(function(s){ return s[0] + ' ' + o[s[0]]; }).join(' · ') + '</p>';
+        '</div></div><span class="val">' + tot.toLocaleString('en-US') + ' title' + (tot === 1 ? '' : 's') + '</span></div><p class="st-note st-note--row">' + parts.map(function(s){ return s[0] + ' ' + o[s[0]]; }).join(' · ') + '</p>';
     });
-    return h + '<p class="st-note">“Caught up” means you have seen every episode that has aired so far.</p></div>';
+    return h + '</div><p class="st-note">“Caught up” means you have seen every episode that has aired so far.</p></div>';
   }
   function stTypeCard(st){
     var cats = statsCategories().filter(function(c){ return st.byCat[c]; }), tot = st.mins || 1;
     if(!cats.length || !st.mins) return '';
     return '<div class="st-card"><h3>Time by type</h3><p class="st-sub">Share of your ' + stHm(st.mins) + '</p><div class="st-track st-track--big">' +
       cats.map(function(c){ return '<span style="flex:' + st.byCat[c] + ';background:' + statsCatColor(c) + '" data-tip="' + stEsc(statsCatLabel(c) + ' · ' + stHm(st.byCat[c]) + ' (' + Math.round(st.byCat[c]/tot*100) + '%)') + '"></span>'; }).join('') + '</div>' +
-      '<ul class="st-list">' + cats.map(function(c){ return '<li><span class="st-dot" style="background:' + statsCatColor(c) + '"></span><div class="st-li-main"><b>' + stEsc(statsCatLabel(c)) + '</b></div><span class="st-li-v">' + stHm(st.byCat[c]) + ' · ' + Math.round(st.byCat[c]/tot*100) + '%</span></li>'; }).join('') + '</ul></div>';
+      '<ul class="st-list">' + cats.map(function(c){ return '<li><span class="st-dot" style="background:' + statsCatColor(c) + '"></span><div class="st-li-main"><b>' + stEsc(statsCatLabel(c)) + '</b></div><span class="st-li-v">' + stHmS(st.byCat[c]) + ' · ' + Math.round(st.byCat[c]/tot*100) + '%</span></li>'; }).join('') + '</ul></div>';
   }
   function stGenreCard(st){
     if(!st.genres.length || !st.mins) return '';
-    var rows = st.genres.slice(0,8).map(function(g){ return [g.name, g.m]; }), other = st.genres.slice(8).reduce(function(a,g){ return a + g.m; }, 0);
-    if(other) rows.push(['Other (' + (st.genres.length - 8) + ')', other]);
-    var max = rows[0][1] || 1;
-    return '<div class="st-card"><h3>Genres</h3><p class="st-sub">Hours on titles with each genre. A title with 3 genres counts toward all 3.</p>' +
-      rows.map(function(x){ return '<div class="st-row"><span class="nm">' + stEsc(x[0]) + '</span><div><div class="st-gbar" style="width:' + Math.max(2, x[1]/max*100) + '%" data-tip="' + stEsc(x[0] + ' · ' + stHm(x[1])) + '"></div></div><span class="val">' + stHm(x[1]) + '</span></div>'; }).join('') + '</div>';
+    // Bars share one scale (the biggest genre), so none can run past its lane. Genres after the top 8 sit
+    // behind a "+N more" row instead of a summed "Other" bar, which could be longer than the top genre.
+    var rest = st.genres.slice(8), shown = stGenreOpen ? st.genres : st.genres.slice(0,8), max = st.genres[0].m || 1;
+    return '<div class="st-card"><h3>Genres</h3><p class="st-sub">Hours on titles with each genre. A title with 3 genres counts toward all 3.</p><div class="st-rows">' +
+      shown.map(function(g){ return '<div class="st-row"><span class="nm" title="' + stEsc(g.name) + '">' + stEsc(g.name) + '</span><div class="st-lane"><div class="st-gbar" style="width:' + Math.min(100, Math.max(2, g.m/max*100)) + '%" data-tip="' + stEsc(g.name + ' · ' + stHm(g.m)) + '"></div></div><span class="val">' + stHmS(g.m) + '</span></div>'; }).join('') +
+      (rest.length ? '<button type="button" class="st-more" data-action="stats-genres">' + (stGenreOpen ? '<b>Show top 8 only</b>' : '<b>+' + rest.length + ' more genre' + (rest.length === 1 ? '' : 's') + '</b><span>' + stHmS(rest.reduce(function(a,g){ return a + g.m; }, 0)) + ' ›</span>') + '</button>' : '') +
+      '</div></div>';
   }
   function stTopCard(st){
     return '<div class="st-card"><h3>Top titles</h3><p class="st-sub">By time watched</p><ul class="st-list">' + st.ranked.slice(0,5).map(function(t, i){
       var s = t.s;
       return '<li class="st-top" data-action="open-detail" data-show="' + s.id + '"><span class="st-rank">' + (i+1) + '</span>' + stPoster(s) + '<div class="st-li-main"><b>' + stEsc(s.title) + '</b><span><span class="st-dot" style="display:inline-block;background:' + statsCatColor(statsCatOf(s)) + ';margin-right:4px"></span>' +
-        (s.type === 'movie' ? 'Movie' : t.eps + ' episode' + (t.eps === 1 ? '' : 's')) + (st.finished.indexOf(s.id) !== -1 ? ' · finished' : '') + '</span></div><span class="st-li-v">' + stHm(t.mins) + '</span></li>';
+        (s.type === 'movie' ? 'Movie' : t.eps + ' episode' + (t.eps === 1 ? '' : 's')) + (st.finished.indexOf(s.id) !== -1 ? ' · finished' : '') + '</span></div><span class="st-li-v">' + stHmS(t.mins) + '</span></li>';
     }).join('') + '</ul></div>';
   }
   function stHabitCard(st){
     var nat = Object.keys(st.byNat).map(function(k){ return [k, st.byNat[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
-    var natHtml = (nat.length && st.mins) ? '<p class="st-sub" style="margin:14px 0 6px;"><b style="color:var(--text)">Nationality</b></p><ul class="st-list">' + nat.map(function(x){ return '<li><div class="st-li-main"><b>' + stEsc(x[0]) + '</b></div><span class="st-li-v">' + stHm(x[1]) + ' · ' + Math.round(x[1]/st.mins*100) + '%</span></li>'; }).join('') + '</ul>' : '';
+    var natHtml = (nat.length && st.mins) ? '<p class="st-sub" style="margin:14px 0 6px;"><b style="color:var(--text)">Nationality</b></p><ul class="st-list">' + nat.map(function(x){ return '<li><div class="st-li-main"><b>' + stEsc(x[0]) + '</b></div><span class="st-li-v">' + stHmS(x[1]) + ' · ' + Math.round(x[1]/st.mins*100) + '%</span></li>'; }).join('') + '</ul>' : '';
     var logged = st.byDow.reduce(function(a,b){ return a+b; }, 0);
     if(!logged) return '<div class="st-card"><h3>Your habits</h3><p class="st-note" style="margin-top:4px">Day-of-week habits use episodes ticked from now on. Older ones only have an estimated air date.</p>' + natHtml + '</div>';
     var max = Math.max.apply(null, st.byDow), bi = st.byDow.indexOf(max);
@@ -882,7 +893,7 @@
   /* ---------- layer outside #appBody: picker sheet, wrap player, tooltip ----------
      Kept out of appBody on purpose: a background sync or any render() replaces appBody's HTML,
      and that must never close or reset an open wrap or picker. */
-  var stLayer = null, stStory = { i:0, cards:[], timer:null }, stPickYear = null, stPickMonth = null;
+  var stLayer = null, stStory = { i:0, cards:[], timer:null }, stPickYear = null, stPickMonth = null, stGenreOpen = false;
   function stEnsureLayer(){
     if(stLayer) return stLayer;
     stLayer = document.createElement('div'); stLayer.id = 'statsLayer';
@@ -936,7 +947,7 @@
     var cnt = Math.min(9, T.length), use = cnt <= 6 ? cnt : (cnt >= 9 ? 9 : 6), cols = use <= 1 ? 1 : use <= 3 ? use : use === 4 ? 2 : 3;
     c.push({ edge:'#A9762A', bg:'linear-gradient(165deg,#1B2036,#3C2F6B 60%,#A9762A)', html:'<div class="st-k">' + stEsc(lab) + ' · TWatched</div><div class="st-h" style="margin-bottom:0">My ' + stEsc(lab) + ' in posters</div>' +
       '<div class="st-sgrid st-fit" style="grid-template-columns:repeat(' + cols + ',1fr);' + (use === 1 ? 'width:55%;margin-left:auto;margin-right:auto' : '') + '">' + T.slice(0, use).map(function(t, k){ return stPoster(t.s, k === 0 ? '<span class="st-badge">#1</span>' : ''); }).join('') + '</div>' +
-      '<div class="st-stats4"><div><b>' + Math.round(st.mins/60) + 'h</b><span>watched</span></div><div><b>' + st.eps + '</b><span>episodes</span></div><div><b>' + st.finished.length + '</b><span>finished</span></div><div><b class="sm">' + stEsc(st.genres[0] ? st.genres[0].name : '—') + '</b><span>top genre</span></div></div>' +
+      '<div class="st-stats4"><div><b>' + Math.round(st.mins/60) + 'h</b><span>watched</span></div><div><b>' + st.eps + '</b><span>episodes</span></div><div><b>' + st.finished.length + '</b><span>finished</span></div><div><b class="sm' + ((st.genres[0] ? st.genres[0].name : '').length > 8 ? ' st-wrap2' : '') + '">' + stEsc(st.genres[0] ? st.genres[0].name : '—') + '</b><span>top genre</span></div></div>' +
       '<div class="st-brand"><span>TWatched</span><span>' + stEsc(lab) + ' wrap</span></div>' });
     return c;
   }
@@ -2420,6 +2431,8 @@
         stCloseSheet(); break;
       case 'stats-heat':
         (function(){ var p = btn.getAttribute('data-value').split('-'); state.statsMode = 'month'; state.statsAnchor = new Date(+p[0], +p[1], 1).getTime(); render(); window.scrollTo(0,0); })(); break;
+      case 'stats-genres':
+        stGenreOpen = !stGenreOpen; render(); break;
       case 'stats-play':
         stOpenStory(); break;
       case 'story-next':
