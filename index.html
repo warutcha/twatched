@@ -415,6 +415,14 @@
   .crop-field{ margin:16px 0; }
   .crop-field label{ display:block; font-size:12.5px; font-weight:700; color:var(--text-muted); margin-bottom:6px; }
   .crop-hint{ font-size:11px; color:var(--text-muted); margin:6px 0 0; }
+  .sched-drop .two-col{ align-items:end; }   /* labels may wrap to 2 lines on small phones: keep the boxes level */
+  .release-plan{ background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:4px 12px; }
+  .release-plan ul{ list-style:none; margin:0; padding:0; }
+  .release-plan li{ display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px dashed var(--border); font-size:13px; }
+  .release-plan li:last-child{ border-bottom:0; }
+  .release-plan li span{ color:var(--text-muted); font-weight:600; }
+  .release-plan li b{ font-weight:700; }
+  .release-plan li.more span, .release-plan li.more b{ color:var(--text-muted); font-weight:600; }
   .crop-box{ position:relative; overflow:hidden; border-radius:12px; background:var(--surface-2); touch-action:none; cursor:grab; border:1px solid var(--border); }
   .crop-box:active{ cursor:grabbing; }
   .crop-box--thumbnail{ width:112px; aspect-ratio:3/4; }
@@ -669,6 +677,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=219"></script>
+<script src="app.js?v=220"></script>
 </body>
 </html>

@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.13.2';
+  var APP_VERSION = 'v2.14.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -77,7 +77,10 @@
     var t = (show.airTime||'20:00').split(':');
     var h = parseInt(t[0],10) || 0, m = parseInt(t[1],10) || 0;
     var perDrop = show.episodesPerAiring || 1;
-    var occurrenceIndex = Math.ceil(episodeNumber / perDrop);
+    // Episodes 1..P all come out on the first day (P = "episodes on day 1"; when it isn't set it equals perDrop,
+    // which gives exactly the old result). After that, groups of perDrop on each following air day.
+    var firstDrop = premiereCount(show);
+    var occurrenceIndex = episodeNumber <= firstDrop ? 1 : 1 + Math.ceil((episodeNumber - firstDrop) / perDrop);
     var base = new Date(show.firstAirDate + 'T00:00:00');
     if(occurrenceIndex <= 1){
       base.setHours(h,m,0,0);
@@ -94,6 +97,10 @@
     }
     cursor.setHours(h,m,0,0);
     return cursor;
+  }
+  function premiereCount(show){
+    var per = show.episodesPerAiring || 1, p = parseInt(show.premiereEpisodes, 10);
+    return p > 0 ? p : per;
   }
   function getNextEpisodeInfo(show, nowMs){
     var nextNum = show.watched + 1;
@@ -141,6 +148,12 @@
     var perDrop = show.episodesPerAiring || 1;
     var freqPrefix = perDrop > 1 ? (perDrop + ' new episodes ') : 'New episodes ';
     var base = freqPrefix + joined + ' at ' + fmtTime(new Date('2000-01-01T'+(show.airTime||'20:00')+':00')) + ' Thai time';
+    var firstDrop = premiereCount(show), total = show.totalEpisodes || 0;
+    if(firstDrop !== perDrop && show.firstAirDate){
+      var d1 = computeEpisodeDate(show, 1);
+      if(total && firstDrop >= total) base = 'All ' + total + ' episodes on ' + fmtDate(d1) + ' at ' + fmtTime(d1) + ' Thai time';
+      else base = firstDrop + ' episode' + (firstDrop === 1 ? '' : 's') + ' on premiere day (' + fmtDate(d1) + '), then ' + base.charAt(0).toLowerCase() + base.slice(1);
+    }
     if(show.airTimeZone && show.airTimeZone !== 'TH' && show.airTimeOriginal){
       var tzInfo = TZ_OPTIONS.filter(function(t){return t.v===show.airTimeZone;})[0];
       base += ' (' + fmtTime(new Date('2000-01-01T'+show.airTimeOriginal+':00')) + ' ' + (tzInfo?tzInfo.l:show.airTimeZone) + ')';
@@ -1784,11 +1797,24 @@
   }
 
   /* ---------------- FORM ---------------- */
+  // Live preview of the dates in the Add / Edit form, from the same calculation the app uses everywhere.
+  function releasePlanHtml(d){
+    var total = Math.max(1, parseInt(d.totalEpisodes,10) || 1);
+    if(!d.firstAirDate || isNaN(new Date(d.firstAirDate + 'T00:00:00').getTime())) return '<p class="crop-hint" style="margin:0">Set the date episode 1 airs to see the plan.</p>';
+    var per = Math.max(1, parseInt(d.episodesPerAiring,10) || 1), prem = parseInt(d.premiereEpisodes,10);
+    var sh = { firstAirDate:d.firstAirDate, airDays:(d.airDays && d.airDays.length) ? d.airDays : [0], airTime:d.airTime || '20:00', episodesPerAiring:per, premiereEpisodes: prem > 0 ? prem : '' };
+    var groups = [], i, dt, k;
+    for(i = 1; i <= Math.min(total, 400); i++){ dt = computeEpisodeDate(sh, i); k = dt.toDateString();
+      if(!groups.length || groups[groups.length-1].k !== k) groups.push({ k:k, d:dt, a:i, b:i }); else groups[groups.length-1].b = i; }
+    var row = function(g){ return '<li><span>' + fmtDate(g.d) + '</span><b>' + (g.a === g.b ? 'Ep ' + g.a : 'Ep ' + g.a + '–' + g.b) + '</b></li>'; };
+    var shown = groups.length > 7 ? groups.slice(0,5) : groups;
+    return '<ul>' + shown.map(row).join('') + (groups.length > 7 ? '<li class="more"><span>…</span><b>' + (groups.length - 6) + ' more</b></li>' + row(groups[groups.length-1]) : '') + '</ul>';
+  }
   function emptyDraft(){
     return { id:null, type:'show', title:'', originalTitle:'', seasonLabel:'', genres:[], cast:[], nationality:'', category:(state.categories[0]?state.categories[0].id:''), folderIds:[], totalEpisodes:8, airDays:[0],
       airTime:'20:00', airTimeZone:'TH', airTimeOriginal:'20:00',
       firstAirDate: isoDateOffset(0), channel:'', platform:'', posterIndex: Math.floor(Math.random()*GRADIENTS.length),
-      posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1, related:[] };
+      posterImage:null, posterCrops: defaultCrops(), episodeMinutes:'', episodesPerAiring:1, premiereEpisodes:'', related:[] };
   }
   function emptyMovieDraft(){
     return { id:null, type:'movie', title:'', originalTitle:'', seasonLabel:'', genres:[], cast:[], nationality:'', category:'movie',
@@ -1999,7 +2025,11 @@
         '</div>' +
         '<div class="field"><label>Episode length (minutes)</label><input type="number" id="f_epmin" data-field="episodeMinutes" min="1" value="' + (d.episodeMinutes||'') + '" placeholder="e.g. 45"></div>' +
         '<div class="field"><label>Air days</label><div class="day-chips">' + dayChips + '</div></div>' +
-        '<div class="field"><label>Episodes released together</label><input type="number" id="f_perdrop" data-field="episodesPerAiring" min="1" value="' + (d.episodesPerAiring||1) + '"><p class="crop-hint">For shows that drop more than one episode at the same time (e.g. 2 episodes every Monday), set this above 1.</p></div>' +
+        '<div class="sched-drop"><div class="two-col">' +
+          '<div class="field"><label>Episodes on day 1</label><input type="number" id="f_premiere" data-field="premiereEpisodes" min="1" value="' + (d.premiereEpisodes||'') + '" placeholder="' + (d.episodesPerAiring||1) + '"></div>' +
+          '<div class="field"><label>Episodes released together</label><input type="number" id="f_perdrop" data-field="episodesPerAiring" min="1" value="' + (d.episodesPerAiring||1) + '"></div>' +
+        '</div><p class="crop-hint" style="margin:-4px 0 10px">“Released together”: e.g. 2 episodes every Monday. “Episodes on day 1”: only if the premiere drops a different number (e.g. 4 on day 1, then 2 a week). Leave it empty otherwise.</p>' +
+        '<div class="field"><label>Release plan</label><div class="release-plan" id="f_plan">' + releasePlanHtml(d) + '</div></div></div><!--/sched-drop-->' +
         '<div class="field"><label>Air time (as broadcast)</label><div class="two-col">' +
           '<select id="f_origtz" data-tz-input>' + TZ_OPTIONS.map(function(tz){ return '<option value="' + tz.v + '"' + ((d.airTimeZone||'TH')===tz.v?' selected':'') + '>' + tz.l + '</option>'; }).join('') + '</select>' +
           '<input type="time" id="f_origtime" data-origtime-input value="' + (d.airTimeOriginal||d.airTime) + '">' +
@@ -2192,7 +2222,7 @@
         channel:s.channel||'', platform:s.platform||'', posterIndex:s.posterIndex||0,
         posterImage: s.posterImage || null,
         posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
-        episodeMinutes: s.episodeMinutes || '', episodesPerAiring: s.episodesPerAiring || 1, related: (s.related||[]).slice() };
+        episodeMinutes: s.episodeMinutes || '', episodesPerAiring: s.episodesPerAiring || 1, premiereEpisodes: s.premiereEpisodes || '', related: (s.related||[]).slice() };
     }
     state.formOrigin = origin || 'browse';
     state.confirmDeleteId = null;
@@ -2219,6 +2249,7 @@
     var mins = parseInt(d.episodeMinutes,10);
     if(!mins || mins <= 0) mins = null;
     var perDrop = Math.max(1, parseInt(d.episodesPerAiring,10) || 1);
+    var prem = parseInt(d.premiereEpisodes,10); prem = (prem > 0 && prem !== perDrop) ? Math.min(prem, total) : 0;   // 0 = same as "released together": not stored
     if(d.id){
       var s = getShow(d.id);
       if(s){
@@ -2227,6 +2258,7 @@
         s.channel = d.channel; s.platform = d.platform; s.posterIndex = d.posterIndex;
         s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
         s.episodeMinutes = mins; s.episodesPerAiring = perDrop;
+        if(prem) s.premiereEpisodes = prem; else delete s.premiereEpisodes;
         if(s.watched > s.totalEpisodes) s.watched = s.totalEpisodes;
       }
     } else {
@@ -2235,6 +2267,7 @@
         channel:d.channel, platform:d.platform, posterIndex:d.posterIndex,
         posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
         episodeMinutes: mins, episodesPerAiring: perDrop, watched:0, related: d.related ? d.related.slice() : [] });
+      if(prem) state.shows[state.shows.length-1].premiereEpisodes = prem;
     }
     touch();
     state.overlay = null; state.formDraft = null; state.editingShowId = null;
@@ -2780,6 +2813,10 @@
     }
     if(t.matches('[data-field]') && state.formDraft && !t.matches('[data-tag-input]')){
       state.formDraft[t.getAttribute('data-field')] = t.value;
+      if(/^(totalEpisodes|firstAirDate|episodesPerAiring|premiereEpisodes)$/.test(t.getAttribute('data-field'))){
+        var planEl = document.getElementById('f_plan'); if(planEl) planEl.innerHTML = releasePlanHtml(state.formDraft);
+        var premEl = document.getElementById('f_premiere'); if(premEl) premEl.placeholder = String(Math.max(1, parseInt(state.formDraft.episodesPerAiring,10) || 1));
+      }
     }
   });
   document.addEventListener('change', function(e){
