@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.15.1';
+  var APP_VERSION = 'v2.15.2';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -221,7 +221,7 @@
     feelingOptions: FEELING_OPTIONS_DEFAULT.slice(),
     rateSheet: null,         // { showId, ep, isNew, r, e[], animate } while the rate sheet is open
     scoreBoxOpen: false,
-    statsMode: 'month',      // week | month | year | all
+    statsMode: 'week',       // week | month | year | all  (opens on this week)
     statsAnchor: Date.now(),
     addingRelatedFor: null, // show id whose "add related" panel is open
     managingList: null,      // null | 'nationality' | 'season'
@@ -1306,7 +1306,7 @@
   document.addEventListener('pointerdown', function(e){ var el = e.target.closest && e.target.closest('[data-tip]'); if(el && e.pointerType !== 'mouse'){ stShowTip(el, e.clientX, e.clientY); clearTimeout(stTipTimer); stTipTimer = setTimeout(stHideTip, 1600); } });
   document.addEventListener('keydown', function(e){ if(!stLayer || !document.getElementById('stStory').classList.contains('on')) return; if(stShare.open){ if(e.key === 'Escape') stShareClose(); return; } if(e.key === 'ArrowRight') stStoryNav(1); if(e.key === 'ArrowLeft') stStoryNav(-1); if(e.key === 'Escape') stCloseStory(); });
   document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && stShare.open && stShare.mode !== 'wrap') stShareClose(); });
-  function statsResetPeriod(){ state.statsMode = 'month'; state.statsAnchor = Date.now(); }
+  function statsResetPeriod(){ state.statsMode = 'week'; state.statsAnchor = Date.now(); }
 
   function renderStatsSafe(){
     try { return renderStats(); }
