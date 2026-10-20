@@ -135,7 +135,7 @@
      underneath. Icons only; the labels stay in the markup (visually hidden) for VoiceOver. Hidden
      while typing so it never sits on the keyboard. Every tab page gets room at the bottom so the
      last item can always scroll clear of it. */
-  .tab-nav{ position:fixed; z-index:30; left:50%; transform:translateX(-50%); bottom:max(6px, calc(10px + env(safe-area-inset-bottom,0px) - var(--fixed-gap,0px)));
+  .tab-nav{ position:fixed; z-index:30; left:50%; transform:translateX(-50%); bottom:max(12px, calc(env(safe-area-inset-bottom,0px) - 11px));
     width:min(340px, calc(100% - 32px)); margin:0; padding:5px; gap:4px; flex-wrap:nowrap; justify-content:space-between;
     background:var(--surface); background:color-mix(in srgb, var(--surface) 72%, transparent);
     -webkit-backdrop-filter:blur(20px) saturate(1.7); backdrop-filter:blur(20px) saturate(1.7);
@@ -145,12 +145,11 @@
   .tab-nav-btn span{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
   .tab-nav-btn .icon{ width:25px; height:25px; }
   .tab-nav-btn.active{ background:var(--surface-2); background:color-mix(in srgb, var(--teal) 16%, transparent); color:var(--teal); border:0; }
-  /* --fixed-gap: on iPhone Home Screen apps, iOS has (in some versions) ended the fixed-position layer
-     short of the real screen bottom. The app measures that gap and subtracts it, so the bar keeps the
-     same distance from the home bar either way. It is 0 everywhere else. */
+  /* Same height as Instagram's bar: its bottom edge sits 23 pt above the screen edge on iPhones with a
+     home bar (safe area 34 pt − 11), and 12 pt above it on devices without one. */
   html.kb-open .tab-nav{ display:none; }
   /* the round + (Add show) button on Browse sits just above the floating menu instead of under it */
-  #browseFab.fab{ bottom:max(82px, calc(86px + env(safe-area-inset-bottom,0px) - var(--fixed-gap,0px))); }
+  #browseFab.fab{ bottom:calc(max(12px, calc(env(safe-area-inset-bottom,0px) - 11px)) + 75px); }
   html.kb-open #browseFab.fab{ bottom:calc(24px + env(safe-area-inset-bottom,0px)); }
   .app-screen:not(.app-screen--overlay) > .screen-pad, .browse-split > .browse-list-pane, .browse-split > .browse-detail-pane{ padding-bottom:calc(96px + env(safe-area-inset-bottom,0px)); }
   .sync-dot.off{ background:var(--text-muted); box-shadow:none; }
@@ -719,6 +718,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=224"></script>
+<script src="app.js?v=225"></script>
 </body>
 </html>

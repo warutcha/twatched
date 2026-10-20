@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.16.0';
+  var APP_VERSION = 'v2.16.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -3138,29 +3138,6 @@
       touch(); render();
     }
   });
-  // Measures how far short of the real screen bottom fixed-position things end (an iOS Home Screen
-  // quirk in some versions), so the floating menu can make up for it. 0 when there's no such gap.
-  function measureFixedGap(){
-    var gap = 0;
-    try {
-      if(pushStandalone()){
-        var sw = window.screen.width, sh = window.screen.height, portrait = window.innerHeight >= window.innerWidth;
-        var fullW = portrait ? Math.min(sw, sh) : Math.max(sw, sh), fullH = portrait ? Math.max(sw, sh) : Math.min(sw, sh);
-        if(Math.abs(window.innerWidth - fullW) < 2){   // only when the app fills the screen (not iPad split view)
-          var probe = document.createElement('div');
-          probe.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;visibility:hidden;pointer-events:none;';
-          document.body.appendChild(probe);
-          var g = Math.round(fullH - probe.getBoundingClientRect().bottom);
-          probe.parentNode.removeChild(probe);
-          if(g > 1 && g < 140) gap = g;
-        }
-      }
-    } catch(e){}
-    document.documentElement.style.setProperty('--fixed-gap', gap + 'px');
-  }
-  measureFixedGap();
-  window.addEventListener('resize', measureFixedGap);
-  window.addEventListener('orientationchange', function(){ setTimeout(measureFixedGap, 300); });
   document.addEventListener('focusin', function(e){ if(e.target.matches && e.target.matches('input, textarea, select')) document.documentElement.classList.add('kb-open'); });
   document.addEventListener('focusout', function(){ setTimeout(function(){ var a = document.activeElement; if(!(a && a.matches && a.matches('input, textarea, select'))) document.documentElement.classList.remove('kb-open'); }, 60); });
   document.addEventListener('submit', function(e){
