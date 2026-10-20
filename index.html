@@ -615,6 +615,51 @@
   .st-pick-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
   .st-pill{ font-family:inherit; font-size:13px; font-weight:700; border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:12px; padding:11px 6px; cursor:pointer; text-align:center; }
   .st-pill.on{ background:var(--teal); border-color:var(--teal); color:#fff; }
+  /* Keeping up (v2.17) */
+  .ku-big{ font-family:var(--font-display); font-size:32px; font-weight:600; line-height:1.1; margin-top:4px; } .ku-big small{ font-family:var(--font-body); font-size:13px; font-weight:700; color:var(--text-muted); }
+  .ku-legend{ display:grid; grid-template-columns:1fr 1fr; gap:4px 14px; font-size:11.5px; color:var(--text-muted); font-weight:600; }
+  .ku-legend span{ display:flex; align-items:center; gap:6px; } .ku-legend i{ width:9px; height:9px; border-radius:3px; flex:none; } .ku-legend b{ margin-left:auto; color:var(--text); }
+  .ku-nm{ display:flex !important; align-items:center; gap:7px; } .ku-nm .st-pst{ width:22px; flex:none; border-radius:4px; }
+  .ku-nm .ku-t{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .st-rows .ku-nm{ max-width:128px; }
+  .ku-bar{ height:10px; border-radius:0 4px 4px 0; cursor:pointer; max-width:100%; }
+  .pace-box .score-inner{ padding:0 14px 14px; }
+  .pace-note{ font-size:12px; color:var(--text-muted); margin:0 0 8px; line-height:1.45; } .pace-note b{ color:var(--text); }
+  .pace-key{ display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:10px; font-size:11px; font-weight:600; color:var(--text-muted); }
+  .pace-key span{ display:flex; align-items:center; gap:5px; } .pace-key i{ width:8px; height:8px; border-radius:2px; } .pace-key em{ font-style:normal; margin-left:auto; opacity:.8; }
+  .ku-date{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .ku-tag{ padding:1px 7px; border-radius:999px; background:var(--surface-2); background:color-mix(in srgb, var(--c) 15%, transparent); color:var(--text-muted); font-weight:600; font-size:11px; line-height:1.35; white-space:nowrap; }
+  .ku-corner{ position:absolute; bottom:9px; right:9px; width:26px; height:26px; border-radius:50%; background:rgba(10,10,16,0.55); display:flex; align-items:center; justify-content:center; font-size:13px; line-height:1; pointer-events:none; }
+  .ku-acts{ display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+  .ku-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .ku-info{ flex:0 0 auto; width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); font:italic 700 15px/1 Georgia, 'Times New Roman', serif; display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer; }
+  .kk-sub{ font-size:13px; color:var(--text-muted); margin:0 0 10px; line-height:1.45; }
+  .kk-row{ display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--border); }
+  .kk-e{ width:36px; height:36px; border-radius:50%; background:var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:18px; flex:none; }
+  .kk-t{ flex:1; min-width:0; } .kk-t b{ display:block; font-size:14px; } .kk-t span{ font-size:12px; color:var(--text-muted); }
+  .kk-p{ display:flex; align-items:center; gap:4px; flex:none; } .kk-p .st-pst{ width:24px; border-radius:4px; } .kk-p em{ font-style:normal; color:var(--text-muted); font-size:12px; font-weight:700; }
+  .kk-note{ font-size:11.5px; color:var(--text-muted); margin:8px 0 4px; }
+  .st-scard{ --kw0:#bcd9ff; --kw1:#6aa6f5; --kw2:#3a78d6; --kw3:#24539e; --kw4:#7b8aa6; }
+  .kw-dial{ position:relative; width:58%; margin:14px auto 14px; aspect-ratio:1; flex:none; container-type:inline-size; } .kw-dial svg{ width:100%; height:100%; display:block; }
+  .kw-mid{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .kw-mid span{ font-size:30px; font-size:15cqw; line-height:1; } .kw-mid b{ font-family:var(--font-display); font-size:28px; font-size:14cqw; font-weight:600; margin-top:2cqw; white-space:nowrap; line-height:1.1; } .kw-mid small{ font-size:11px; font-size:5.6cqw; opacity:.75; font-weight:700; white-space:nowrap; }
+  .kw-list{ display:grid; gap:5px; } .kw-list div{ display:flex; align-items:center; gap:10px; font-size:14px; padding:6px 12px; border-radius:12px; background:rgba(255,255,255,.06); }
+  .kw-list div.on{ background:rgba(255,255,255,.2); font-weight:800; } .kw-list em{ flex:1; font-style:normal; } .kw-list b{ font-weight:800; }
+  .kw-fast{ display:flex; align-items:center; gap:12px; margin-top:auto; padding-top:12px; } .kw-fast .st-pst{ width:44px; border-radius:7px; flex:none; }
+  .kw-fast > div{ min-width:0; } .kw-fast small{ display:block; font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; opacity:.7; }
+  .kw-fast b{ display:block; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .kw-fast span{ font-size:12.5px; opacity:.8; }
+  .kw-emo{ font-size:60px; line-height:1; margin:16px 0 0; }
+  .kw-race{ margin:20px 0 0; padding:0 30px 26px 22px; flex:none; }
+  .kw-field{ position:relative; height:100%; display:flex; flex-direction:column; }
+  .kw-lane{ position:relative; flex:1; min-height:0; border-bottom:1px dashed rgba(255,255,255,.22); }
+  .kw-run{ position:absolute; top:10%; height:80%; transform:translateX(-50%); }
+  .kw-run .st-pst{ height:100%; width:auto; border-radius:6px; }
+  .kw-val{ position:absolute; left:100%; top:50%; transform:translateY(-50%); margin-left:6px; font-size:12px; font-weight:800; white-space:nowrap; }
+  .kw-val.l{ left:auto; right:100%; margin:0 6px 0 0; }
+  .kw-tick{ position:absolute; top:0; bottom:0; width:0; } .kw-tick i{ position:absolute; top:0; bottom:0; border-left:1px solid rgba(255,255,255,.16); }
+  .kw-tick em{ position:absolute; bottom:-22px; transform:translateX(-50%); font-style:normal; font-size:11px; font-weight:700; opacity:.75; white-space:nowrap; }
+  .kw-tick:first-child em{ transform:none; left:-4px; }
+  .kw-foot{ text-align:center; margin-top:auto !important; opacity:.75; font-size:13px; }
+  @media (max-height:700px){ .kw-list{ gap:3px; } .kw-list div{ padding:4px 12px; font-size:13px; } .kw-dial{ margin:8px auto; } .kw-emo{ font-size:44px; margin-top:8px; } .kw-fast .st-pst{ width:36px; } }
   .st-pill:disabled{ opacity:.35; cursor:default; }
   .st-pill small{ display:block; font-size:10px; font-weight:600; opacity:.75; margin-top:2px; }
   .st-weeks{ display:flex; flex-direction:column; gap:6px; }
@@ -718,6 +763,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=225"></script>
+<script src="app.js?v=226"></script>
 </body>
 </html>

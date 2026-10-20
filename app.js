@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.16.1';
+  var APP_VERSION = 'v2.17.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -221,6 +221,7 @@
     feelingOptions: FEELING_OPTIONS_DEFAULT.slice(),
     rateSheet: null,         // { showId, ep, isNew, r, e[], animate } while the rate sheet is open
     scoreBoxOpen: false,
+    paceBoxOpen: false,
     statsMode: 'week',       // week | month | year | all  (opens on this week)
     statsAnchor: Date.now(),
     addingRelatedFor: null, // show id whose "add related" panel is open
@@ -767,7 +768,7 @@
       return out + '<div class="st-card st-empty">Nothing watched in ' + stEsc(statsShortLabel()) + '.</div>' + stStatusCard(st) + '</div>';
     }
     var top3 = st.ranked.slice(0,3);
-    out += '<button type="button" class="st-play" data-action="stats-play"><span class="st-play-ic">▶</span><span class="st-play-tx"><b>Play your ' + stEsc(state.statsMode === 'all' ? 'all-time' : statsShortLabel()) + ' wrap</b><span>6 cards · about 40 seconds</span></span>' +
+    out += '<button type="button" class="st-play" data-action="stats-play"><span class="st-play-ic">▶</span><span class="st-play-tx"><b>Play your ' + stEsc(state.statsMode === 'all' ? 'all-time' : statsShortLabel()) + ' wrap</b><span>' + stWrapLength(st) + '</span></span>' +
       '<span class="st-peek">' + top3.map(function(t){ return stPoster(t.s); }).join('') + '</span></button>';
     out += '<div class="st-kpis"><div class="st-kpi st-kpi--hero"><div class="v">' + Math.floor(st.mins/60) + '<small> h </small>' + Math.round(st.mins % 60) + '<small> m</small></div><div class="l">Time watched · ' + stEsc(statsShortLabel()) + '</div>' +
         (st.estMins ? '<span class="st-est">≈ ' + stHm(st.estMins) + ' estimated from air dates</span>' : '') + '</div>' +
@@ -775,7 +776,7 @@
       '<div class="st-kpi"><div class="v">' + st.movies + '</div><div class="l">Movies</div></div>' +
       '<div class="st-kpi"><div class="v">' + st.ranked.length + '</div><div class="l">Titles watched</div></div>' +
       '<div class="st-kpi"><div class="v">' + st.finished.length + '</div><div class="l">Finished</div></div></div>';
-    out += (state.statsMode === 'all' ? stHeatmapCard(st) : stActivityCard(st)) + stStatusCard(st) + stTypeCard(st) + stGenreCard(st) + stTopCard(st) + stHabitCard(st);
+    out += (state.statsMode === 'all' ? stHeatmapCard(st) : stActivityCard(st)) + stKeepCard(st) + stStatusCard(st) + stTypeCard(st) + stGenreCard(st) + stTopCard(st) + stHabitCard(st);
     if(st.noLen) out += '<p class="st-note">' + st.noLen + ' watched item' + (st.noLen > 1 ? 's have' : ' has') + ' no length set, so ' + (st.noLen > 1 ? 'they count' : 'it counts') + ' toward episodes and movies but adds no time.</p>';
     return out + '</div>';
   }
@@ -928,6 +929,8 @@
     stOpenSheet(h);
   }
 
+  // how many cards the wrap has, and roughly how long it plays (7 s a card)
+  function stWrapLength(st){ var n = 5 + (st.genres.length ? 1 : 0) + kuWrapCards().length, secs = n*7; return n + ' cards · ' + (secs >= 55 ? 'about a minute' : 'about ' + Math.round(secs/5)*5 + ' seconds'); }
   function stWrapLabel(){ return state.statsMode === 'all' ? 'All-time' : statsShortLabel().charAt(0).toUpperCase() + statsShortLabel().slice(1); }
   function stWrapCards(st){
     var T = st.ranked, lab = stWrapLabel(), c = [];
@@ -940,6 +943,7 @@
       (T.length > 1 ? '<div class="st-runners">' + T.slice(1,5).map(function(t, n){ return '<div>' + stPoster(t.s, '<span class="st-badge">#' + (n+2) + '</span>') + stHm(t.mins) + '</div>'; }).join('') + '</div>' : '') });
     if(st.genres.length) c.push({ edge:'#4A2F0A', bg:'linear-gradient(160deg,#A9762A,#4A2F0A)', html:'<div class="st-k">Your taste</div><div class="st-h">You\'re a ' + stEsc(st.genres[0].name) + (st.genres[1] ? ' &amp; ' + stEsc(st.genres[1].name) : '') + ' person</div>' +
       st.genres.slice(0,4).map(function(g){ return '<div class="st-gen"><div class="st-stack">' + g.ids.slice(0,3).map(function(id, n){ return stPoster(st.titles[id].s, '', 'left:' + (n*22) + 'px;transform:rotate(' + ((n-1)*6) + 'deg);z-index:' + (3-n) + ';'); }).join('') + '</div><div><b>' + stEsc(g.name) + '</b><span>' + stHm(g.m) + ' · ' + g.ids.length + ' title' + (g.ids.length === 1 ? '' : 's') + '</span></div></div>'; }).join('') });
+    kuWrapCards().forEach(function(k){ c.push(k); });
     var F = st.finished, sh = F.slice(0,6), n = sh.length;
     c.push({ edge:'#0B3D38', bg:'linear-gradient(160deg,#16786F,#0B3D38)', html:'<div class="st-k">Finished</div><div class="st-h">' + (n ? 'You wrapped up ' + F.length + ' title' + (F.length === 1 ? '' : 's') : 'Nothing finished yet') + '</div>' +
       (n ? '<div class="st-fan st-fit st-fit-h">' + sh.map(function(id, k){ var a = (k - (n-1)/2) * (n > 4 ? 11 : 14); return stPoster(st.titles[id].s, '<span class="st-chk">✓</span>', 'transform:translateX(-50%) rotate(' + a + 'deg);z-index:' + k + ';'); }).join('') + '</div>' : '<p class="st-p">Keep going. Your next finale is coming.</p>') +
@@ -1503,6 +1507,7 @@
       '<div class="tile-poster" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' +
         posterImgTag(show,'grid') +
         '<span class="badge">' + statusBadge(show) + '</span>' +
+        kuShowBadge(show) +
         rmBtn +
       '</div>' +
       '<p class="tile-cap">' + show.title + '</p>' +
@@ -1514,11 +1519,11 @@
     if(isWideLayout()){
       var selected = getShow(state.detailShowId) || state.shows[0] || null;
       var out = '<div class="browse-split">';
-      out += '<div class="browse-list-pane"><h1 class="screen-title" style="font-size:22px;margin-top:6px;">Browse</h1>';
+      out += '<div class="browse-list-pane"><div class="ku-head"><h1 class="screen-title" style="font-size:22px;margin-top:6px;">Browse</h1>' + kuInfoBtn() + '</div>';
       state.shows.forEach(function(s){
         out += '<button class="list-row' + (selected && selected.id===s.id?' active':'') + '" data-action="select-browse" data-show="' + s.id + '">' +
           '<div class="list-row-thumb" style="' + (s.posterImage ? '' : posterStyle(s)) + '">' + posterImgTag(s,'thumbnail') + (s.posterImage ? '' : '<span>' + initialOf(s) + '</span>') + '</div>' +
-          '<div><p class="list-row-title">' + s.title + '</p><p class="list-row-sub">' + statusBadge(s) + '</p></div>' +
+          '<div><p class="list-row-title">' + s.title + '</p><p class="list-row-sub">' + statusBadge(s) + kuListLabel(s) + '</p></div>' +
         '</button>';
       });
       out += '<button class="fab fab--inline" data-action="open-add">' + icon('plus') + ' Add show</button>';
@@ -1530,7 +1535,8 @@
     var out2 = '<div class="screen-pad" style="position:relative;min-height:100%;">';
     var editable = state.browseViewMode === 'folder';
     out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (editable && state.browseEditMode ? 'Rename, reorder, or remove shows from folders.' : (state.browseViewMode==='movies' ? 'Sorted by most recently watched.' : 'Tap a poster to open it.')) + '</p></div>' +
-      (editable ? '<button class="edit-toggle' + (state.browseEditMode?' active':'') + '" data-action="toggle-browse-edit">' + (state.browseEditMode?'Done':'Edit') + '</button>' : '') +
+      '<div class="ku-acts">' + (state.browseViewMode !== 'movies' && !(editable && state.browseEditMode) ? kuInfoBtn() : '') +
+      (editable ? '<button class="edit-toggle' + (state.browseEditMode?' active':'') + '" data-action="toggle-browse-edit">' + (state.browseEditMode?'Done':'Edit') + '</button>' : '') + '</div>' +
     '</div>';
     out2 += '<div class="seg-switch">' +
       '<button type="button" class="' + (state.browseViewMode==='all'?'active':'') + '" data-action="set-browse-view" data-value="all">All</button>' +
@@ -1764,9 +1770,9 @@
       var d = computeEpisodeDate(show, i);
       if(i <= show.watched){
         if(i === show.watched){
-          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span>' + epShareBtn(show, i) + '</li>';
+          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span>' + kuDateCell(show, i, d) + epShareBtn(show, i) + '</li>';
         } else {
-          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span><span class="ep-row__date">' + fmtDate(d) + '</span>' + epShareBtn(show, i) + '</li>';
+          rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span>' + kuDateCell(show, i, d) + epShareBtn(show, i) + '</li>';
         }
       } else if(i === show.watched+1 && info.aired){
         rows += '<li class="ep-row ep-row--ready"><button class="ep-row__check" data-action="check-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDateTime(d) + '</span></li>';
@@ -1801,6 +1807,7 @@
       '<div class="progress"><div class="progress__bar" style="width:' + pct + '%"></div></div>' +
       '<p class="progress__label">' + show.watched + ' of ' + show.totalEpisodes + ' watched</p>' +
       seriesScoreBoxHtml(show) +
+      paceBoxHtml(show) +
       '<ul class="ep-list">' + rows + '</ul>' +
       relatedSectionHtml(show);
   }
@@ -2251,11 +2258,160 @@
     var s = getShow(id); if(!s) return;
     if(stShare.open) stShareClose();
     stCloseStory(); state.rateSheet = null;
-    state.detailShowId = id; state.confirmDeleteId = null; state.scoreBoxOpen = false;
+    state.detailShowId = id; state.confirmDeleteId = null; state.scoreBoxOpen = false; state.paceBoxOpen = false; stCloseSheet();
     if(isWideLayout()){ saveTabScroll(); state.overlay = null; state.activeTab = 'browse'; render(); restoreTabScroll(); }
     else { openOverlay('detail'); render(); }
   }
   pushLoad();
+
+  /* ---------------- Keeping up: how soon after an episode airs you watch it ----------------
+     Read-only: uses the tick times in show.watchLog (kept since v2.11) and the same air-date
+     calculation as everywhere else. Nothing here writes to saved data or touches sync. */
+  // [stats label, badge label, upper limit in hours, colour, emoji, watcher type, line, meaning]
+  var KU_B = [
+    ['Live', 'Live', 3, '--st-s4', '⚡', 'Live watcher', 'You’re there when it drops.', 'Within 3 hours of airing'],
+    ['Same day', 'Same day', 24, '--st-s3', '☀️', 'Same-day watcher', 'You rarely let a day go by.', 'Later the same day (3–24 h)'],
+    ['1–3 days', 'Next day', 72, '--st-s2', '🌙', 'Next-day watcher', 'You save it for the day after.', '1–3 days after airing'],
+    ['4–7 days', 'Within a week', 168, '--st-s1', '📅', 'Weekly watcher', 'You catch up within the week.', '4–7 days after airing'],
+    ['Later', 'Catch-up', Infinity, '--st-q2', '🐢', 'Catch-up watcher', 'You let them pile up, then dive in.', 'More than a week later']
+  ];
+  function kuBucket(h){ for(var i = 0; i < KU_B.length; i++) if(h < KU_B[i][2]) return i; return KU_B.length - 1; }
+  function kuFmt(h){
+    if(h < 1) return Math.max(1, Math.round(h*60)) + ' min';
+    if(h < 23.5) return Math.round(h) + ' h';
+    var d = h/24;
+    if(d < 10) return (Math.round(d*10)/10) + ' day' + (Math.round(d*10)/10 === 1 ? '' : 's');
+    if(d < 60) return Math.round(d) + ' days';
+    if(d < 365) return Math.round(d/30.4) + ' mo';
+    var y = Math.round(d/365*10)/10; return y + ' yr';
+  }
+  function kuMedian(a){ var s = a.slice().sort(function(x,y){ return x-y; }), m = s.length >> 1; return s.length ? (s.length % 2 ? s[m] : (s[m-1]+s[m])/2) : 0; }
+  // air times, remembered per schedule (long shows would otherwise recount the calendar on every render)
+  var kuAirCache = {};
+  function kuAir(show, ep){
+    var sig = show.id + '|' + show.firstAirDate + '|' + show.airTime + '|' + (show.airDays || []).join(',') + '|' + (show.episodesPerAiring || 1) + '|' + (show.premiereEpisodes || 0);
+    var c = kuAirCache[sig]; if(!c){ c = kuAirCache[sig] = {}; }
+    if(!(ep in c)){ var d = computeEpisodeDate(show, ep); c[ep] = stValid(d) ? d.getTime() : null; }
+    return c[ep];
+  }
+  // hours between the episode's air time and the tick (watched before it "aired" counts as 0)
+  function kuLag(show, ep){
+    if(!show || show.type === 'movie') return null;
+    var ts = show.watchLog && show.watchLog[String(ep)]; if(!ts || typeof ts !== 'number') return null;
+    var air = kuAir(show, ep); if(air == null) return null;
+    return Math.max(0, (ts - air) / 3600000);
+  }
+  function kuShowLags(show){
+    var out = []; if(!show || show.type === 'movie') return out;
+    for(var e = 1; e <= Math.min(show.watched || 0, show.totalEpisodes || 0); e++){ var l = kuLag(show, e); if(l != null) out.push(l); }
+    return out;
+  }
+  // the series' usual pace, only once at least 2 episodes have a watch time
+  function kuShowPace(show){ var l = kuShowLags(show); if(l.length < 2) return null; var m = kuMedian(l); return { b:kuBucket(m), med:m, n:l.length }; }
+  function kuEntries(s, e){
+    var out = [], untimed = 0;
+    state.shows.forEach(function(show){ if(show.type === 'movie') return;
+      for(var ep = 1; ep <= Math.min(show.watched || 0, show.totalEpisodes || 0); ep++){
+        var ts = show.watchLog && show.watchLog[String(ep)];
+        if(!ts){ var ad = computeEpisodeDate(show, ep); if(stValid(ad) && ad >= s && ad < e) untimed++; continue; }
+        if(ts < s.getTime() || ts >= e.getTime()) continue;
+        var l = kuLag(show, ep); if(l == null) continue;
+        out.push({ show:show, ep:ep, lag:l });
+      } });
+    return { list:out, untimed:untimed };
+  }
+  function kuSummary(){
+    var r = statsRange(), E = kuEntries(r.s, r.e), L = E.list.map(function(x){ return x.lag; });
+    if(!L.length) return null;
+    var cnt = KU_B.map(function(){ return 0; }); L.forEach(function(h){ cnt[kuBucket(h)]++; });
+    var by = {}; E.list.forEach(function(x){ (by[x.show.id] = by[x.show.id] || { s:x.show, l:[] }).l.push(x.lag); });
+    var rows = Object.keys(by).map(function(k){ return { s:by[k].s, m:kuMedian(by[k].l), n:by[k].l.length }; }).sort(function(a,b){ return a.m - b.m || b.n - a.n; });
+    return { L:L, cnt:cnt, med:kuMedian(L), rows:rows, untimed:E.untimed };
+  }
+
+  // Stats card
+  function stKeepCard(st){
+    var k = kuSummary(); if(!k) return '';
+    var L = k.L, cnt = k.cnt, rows = k.rows, sameDay = cnt[0] + cnt[1];
+    var lmax = Math.log(rows[rows.length-1].m + 1) || 1;
+    return '<div class="st-card"><h3>Keeping up</h3><p class="st-sub">How soon after an episode airs you watch it · ' + stEsc(state.statsMode === 'all' ? 'all time' : statsShortLabel()) + '</p>' +
+      '<div class="ku-big">' + kuFmt(k.med) + '<small> typical wait</small></div>' +
+      '<p class="st-sub" style="margin:2px 0 0">Half your episodes were watched within ' + kuFmt(k.med) + ' of airing · ' + Math.round(sameDay/L.length*100) + '% the same day</p>' +
+      '<div class="st-track st-track--big" style="margin-top:12px">' + cnt.map(function(c, i){ return c ? '<span style="flex:' + c + ';background:var(' + KU_B[i][3] + ')" data-tip="' + stEsc(KU_B[i][0] + ': ' + c + ' episode' + (c === 1 ? '' : 's')) + '"></span>' : ''; }).join('') + '</div>' +
+      '<div class="ku-legend">' + KU_B.map(function(b, i){ return '<span><i style="background:var(' + b[3] + ')"></i>' + b[0] + '<b>' + Math.round(cnt[i]/L.length*100) + '%</b></span>'; }).join('') + '</div>' +
+      '<p class="st-sub" style="margin:14px 0 4px"><b style="color:var(--text)">By show</b> · fastest first</p><div class="st-rows">' +
+      rows.map(function(x){ return '<div class="st-row"><span class="nm ku-nm" title="' + stEsc(x.s.title) + '">' + stPoster(x.s) + '<span class="ku-t">' + stEsc(x.s.title) + '</span></span><div class="st-lane"><div class="ku-bar" style="width:' + Math.min(100, Math.max(3, Math.log(x.m+1)/lmax*100)) + '%;background:var(' + KU_B[kuBucket(x.m)][3] + ')" data-tip="' + stEsc(x.s.title + ' · typically ' + kuFmt(x.m) + ' after airing · ' + x.n + ' ep') + '"></div></div><span class="val">' + kuFmt(x.m) + '</span></div>'; }).join('') + '</div>' +
+      '<p class="st-note">Based on ' + L.length + ' episode' + (L.length === 1 ? '' : 's') + ' with a watch time.' + (k.untimed ? ' ' + k.untimed + ' earlier tick' + (k.untimed === 1 ? ' has' : 's have') + ' no watch time and ' + (k.untimed === 1 ? 'is' : 'are') + ' left out.' : '') + '</p></div>';
+  }
+
+  // Series page: "Your pace" (closed by default, like "Your series score")
+  function paceBoxHtml(show){
+    if(show.type === 'movie') return '';
+    var lags = kuShowLags(show); if(!lags.length) return '';
+    var med = kuMedian(lags), fast = null, bars = '', mx = 0, seen = {}, key = '';
+    var open = !!state.paceBoxOpen;
+    var head = '<button type="button" class="score-head" data-action="toggle-pace-box" aria-expanded="' + open + '"><span class="lbl">Your pace</span><span class="sum">' + KU_B[kuBucket(med)][4] + ' ' + kuFmt(med) + ' after airing</span><span class="chev">' + icon('down') + '</span></button>';
+    if(!open) return '<div class="score-box pace-box">' + head + '</div>';
+    var total = show.totalEpisodes || 0, upto = Math.min(show.watched || 0, total);
+    for(var e = 1; e <= upto; e++){ var l = kuLag(show, e); if(l != null){ mx = Math.max(mx, l); seen[kuBucket(l)] = 1; if(fast == null || l < fast[1]) fast = [e, l]; } }
+    var lm = Math.log(mx + 1) || 1, every = total > 16 ? 5 : 1;
+    for(var e2 = 1; e2 <= total; e2++){
+      var l2 = e2 <= upto ? kuLag(show, e2) : null;
+      bars += '<div class="' + (l2 != null ? 'has' : '') + '" style="height:' + (l2 != null ? Math.max(10, Math.log(l2+1)/lm*100) : 7) + '%;' + (l2 != null ? 'background:var(' + KU_B[kuBucket(l2)][3] + ')' : '') + '">' + ((e2 === 1 || e2 % every === 0) ? '<small>' + e2 + '</small>' : '') + '</div>';
+    }
+    for(var i = 0; i < KU_B.length; i++) if(seen[i]) key += '<span><i style="background:var(' + KU_B[i][3] + ')"></i>' + KU_B[i][0] + '</span>';
+    return '<div class="score-box pace-box open">' + head + '<div class="score-inner">' +
+      '<p class="pace-note">You usually watch this one <b>' + kuFmt(med) + '</b> after it airs' + (fast && lags.length > 1 ? ' · fastest Ep ' + fast[0] + ' (' + kuFmt(fast[1]) + ')' : '') + '</p>' +
+      '<div class="score-graph pace-graph">' + bars + '</div>' +
+      '<div class="pace-key">' + key + '<em>Shorter bar = watched sooner</em></div>' +
+      (upto > lags.length ? '<p class="pace-note" style="margin:8px 0 0">Grey bars: ticked before watch times were kept.</p>' : '') +
+    '</div></div>';
+  }
+  // Episode list: the date, with a small "x after" under it
+  function kuDateCell(show, ep, d){
+    var l = kuLag(show, ep);
+    if(l == null) return '<span class="ep-row__date">' + fmtDate(d) + '</span>';
+    return '<span class="ep-row__date ku-date"><span>' + fmtDate(d) + '</span><span class="ku-tag" style="--c:var(' + KU_B[kuBucket(l)][3] + ')">' + (l < 1 ? 'within the hour' : kuFmt(l) + ' after') + '</span></span>';
+  }
+  // Browse: emoji at the bottom-right of the poster
+  function kuShowBadge(show){
+    if(show.type === 'movie') return '';
+    var p = kuShowPace(show); if(!p) return '';
+    return '<span class="ku-corner" aria-label="Pace: ' + KU_B[p.b][1] + '">' + KU_B[p.b][4] + '</span>';
+  }
+  function kuAnyBadge(){ for(var i = 0; i < state.shows.length; i++) if(kuShowPace(state.shows[i])) return true; return false; }
+  function kuInfoBtn(){ return kuAnyBadge() ? '<button type="button" class="ku-info" data-action="ku-key" aria-label="What the poster emoji mean">i</button>' : ''; }
+  function kuListLabel(show){ var p = kuShowPace(show); return p ? ' · ' + KU_B[p.b][4] + ' ' + KU_B[p.b][1] : ''; }
+  function kuOpenKey(){
+    var by = KU_B.map(function(){ return []; });
+    state.shows.forEach(function(s){ var p = kuShowPace(s); if(p) by[p.b].push(s); });
+    stOpenSheet('<h4>Pace badges</h4><p class="kk-sub">The emoji on a poster shows how soon after an episode airs you usually watch that series.</p>' +
+      KU_B.map(function(x, i){ return '<div class="kk-row"><span class="kk-e">' + x[4] + '</span><div class="kk-t"><b>' + x[1] + '</b><span>' + x[7] + '</span></div><div class="kk-p">' + (by[i].length ? by[i].slice(0,3).map(function(s){ return stPoster(s); }).join('') + (by[i].length > 3 ? '<em>+' + (by[i].length - 3) + '</em>' : '') : '<em>—</em>') + '</div></div>'; }).join('') +
+      '<p class="kk-note">Shows up once a series has 2 or more episodes with a watch time.</p>');
+  }
+  // Wrap: two cards, "You're a … watcher" (dial) and the race
+  function kuWrapCards(){
+    var k = kuSummary(); if(!k || k.L.length < 3) return [];
+    var L = k.L, cnt = k.cnt, med = k.med, b = kuBucket(med), rows = k.rows, lab = stWrapLabel(), out = [];
+    var pct = function(i){ return Math.round(cnt[i]/L.length*100); };
+    var R = 54, C = 2*Math.PI*R, off = 0, segs = '', gap = cnt.filter(function(c){ return c; }).length > 1 ? 2 : 0;
+    cnt.forEach(function(c, i){ if(!c) return; var len = c/L.length*C; segs += '<circle cx="70" cy="70" r="' + R + '" fill="none" stroke="var(--kw' + i + ')" stroke-width="16" stroke-dasharray="' + Math.max(0.5, len - gap).toFixed(2) + ' ' + (C - Math.max(0.5, len - gap)).toFixed(2) + '" stroke-dashoffset="' + (-off).toFixed(2) + '" transform="rotate(-90 70 70)"/>'; off += len; });
+    out.push({ edge:'#0A1A33', bg:'linear-gradient(165deg,#2A5BA8,#0A1A33 70%)', html:
+      '<div class="st-k">' + stEsc(lab) + ' · Keeping up</div><div class="st-h">You’re a<br>' + KU_B[b][5] + '</div>' +
+      '<div class="kw-dial st-fit"><svg viewBox="0 0 140 140"><circle cx="70" cy="70" r="' + R + '" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="16"/>' + segs + '</svg><div class="kw-mid"><span>' + KU_B[b][4] + '</span><b>' + kuFmt(med) + '</b><small>typical wait</small></div></div>' +
+      '<div class="kw-list">' + KU_B.map(function(x, i){ return '<div class="' + (i === b ? 'on' : '') + '"><span>' + x[4] + '</span><em>' + x[1] + '</em><b>' + pct(i) + '%</b></div>'; }).join('') + '</div>' +
+      '<div class="kw-fast">' + stPoster(rows[0].s) + '<div><small>Fastest</small><b>' + stEsc(rows[0].s.title) + '</b><span>' + kuFmt(rows[0].m) + ' after airing</span></div></div>' });
+    var top = rows.slice(0, 5), lmax = Math.log(24*14 + 1), P = function(h){ return Math.min(100, Math.log(h+1)/lmax*100); };
+    var tick = function(h, t){ return '<span class="kw-tick" style="left:' + P(h) + '%"><i></i><em>' + t + '</em></span>'; };
+    out.push({ edge:'#0A1A33', bg:'linear-gradient(165deg,#2A5BA8,#0A1A33 70%)', html:
+      '<div class="st-k">' + stEsc(lab) + ' · Keeping up</div><div class="kw-emo">' + KU_B[b][4] + '</div><div class="st-h" style="margin-top:4px">' + KU_B[b][5] + '</div>' +
+      '<div class="st-p">' + KU_B[b][6] + ' Typical wait: <b>' + kuFmt(med) + '</b>.</div>' +
+      '<div class="kw-race st-fit st-fit-h" style="height:' + (top.length*80 + 28) + 'px"><div class="kw-field">' + tick(0,'Aired') + tick(24,'1 day') + tick(168,'1 week') +
+        top.map(function(x){ var p = P(x.m); return '<div class="kw-lane"><div class="kw-run" style="left:' + p + '%">' + stPoster(x.s) + '<span class="kw-val' + (p > 62 ? ' l' : '') + '">' + kuFmt(x.m) + '</span></div></div>'; }).join('') +
+      '</div></div>' +
+      '<p class="st-p kw-foot">' + (rows.length > 5 ? 'Your ' + top.length + ' fastest series' : 'Each poster sits at that series’ typical wait') + '</p>' });
+    return out;
+  }
 
   /* ---------------- interactions ---------------- */
   function openOverlay(name){ saveTabScroll(); state.overlay = name; state.justOpenedOverlay = true; }
@@ -2523,6 +2679,10 @@
             state.rateSheet = null; touch(); render(); showToast('Episode ' + rs.ep + ' unmarked');
           }
         })(); break;
+      case 'toggle-pace-box':
+        state.paceBoxOpen = !state.paceBoxOpen; render(); break;
+      case 'ku-key':
+        kuOpenKey(); break;
       case 'toggle-score-box':
         state.scoreBoxOpen = !state.scoreBoxOpen; render(); break;
       case 'set-series-rating':
@@ -2618,6 +2778,7 @@
         state.detailShowId = btn.getAttribute('data-show');
         state.confirmDeleteId = null;
         state.scoreBoxOpen = false;
+        state.paceBoxOpen = false;
         if(isWideLayout()){ saveTabScroll(); state.activeTab = 'browse'; render(); restoreTabScroll(); }
         else { openOverlay('detail'); render(); }
         break;
