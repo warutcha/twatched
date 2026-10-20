@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.15.2';
+  var APP_VERSION = 'v2.16.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1368,6 +1368,7 @@
     html += rateSheetHtml();
     appBody.innerHTML = html;
     if(state.rateSheet) state.rateSheet.animate = false;
+    if(push.cfg) pushPlanSync(false);
 
     // window.scrollY (unlike an individual element's scrollTop) naturally survives this innerHTML
     // replacement on its own, as long as the new content is tall enough — no capture/restore
@@ -2121,6 +2122,7 @@
         }).join('') + '</div></div>' +
 
       syncCard +
+      pushCardHtml() +
 
       '<div class="settings-card"><h3>Your stats</h3><div class="stat-grid">' +
         '<div class="stat-tile"><span class="n">' + totalShows + '</span><span class="l">Shows tracked</span></div>' +
@@ -2131,6 +2133,129 @@
       '<p style="text-align:center;color:var(--text-muted);font-size:11px;margin:6px 0 0;">TWatched ' + APP_VERSION + '</p>' +
     '</div>';
   }
+
+
+  /* ---------------- Notifications: Web Push through your own Cloudflare Worker ----------------
+     This device signs up with the Worker; the app also sends the Worker the times of upcoming
+     episodes (only show id, title, episode number and time). Every 5 minutes the Worker sends a
+     notification for each episode that has just aired. Nothing here touches saving or sync. */
+  var PUSH_KEY = 'twatched_push_v1';
+  var push = { cfg:null, reg:null, sub:null, busy:false, msg:'', status:null, planTimer:null };
+  function pushLoad(){ try { push.cfg = JSON.parse(localStorage.getItem(PUSH_KEY) || 'null'); } catch(e){ push.cfg = null; } }
+  function pushSave(){ try { if(push.cfg) localStorage.setItem(PUSH_KEY, JSON.stringify(push.cfg)); else localStorage.removeItem(PUSH_KEY); } catch(e){} }
+  function pushSupported(){ return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window); }
+  function pushStandalone(){ return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+  function pushDevice(){ return /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad' : (/iPhone/.test(navigator.userAgent) ? 'iPhone' : 'Browser'); }
+  function pushApi(path, body){
+    var url = String(push.cfg && push.cfg.url || '').replace(/\/+$/, '') + path, headers = { 'Content-Type':'application/json' };
+    if(push.cfg && push.cfg.key) headers['X-App-Key'] = push.cfg.key;
+    return fetch(url, { method: body ? 'POST' : 'GET', headers: headers, body: body ? JSON.stringify(body) : undefined, cache:'no-store' }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){ if(!r.ok) throw new Error(j.error || ('Worker replied ' + r.status)); return j; });
+    });
+  }
+  function pushB64(s){ var b = atob(s.replace(/-/g,'+').replace(/_/g,'/') + '==='.slice((s.length + 3) % 4)), a = new Uint8Array(b.length); for(var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+  function pushRefreshSub(){
+    if(!push.reg || !push.reg.pushManager) return;
+    push.reg.pushManager.getSubscription().then(function(s){ var had = !!push.sub; push.sub = s || null; if(had !== !!push.sub && state.activeTab === 'settings') render(); }).catch(function(){});
+  }
+  function pushLoadStatus(){
+    if(!push.cfg || !push.cfg.key) return;
+    pushApi('/status').then(function(st){ push.status = st; if(state.activeTab === 'settings' && !state.overlay) render(); }).catch(function(){});
+  }
+  // the times of upcoming episodes, from the same calculation the app uses everywhere
+  function pushPlanSig(){
+    return JSON.stringify(state.shows.filter(function(s){ return s.type !== 'movie'; }).map(function(s){
+      return [s.id, s.title, s.firstAirDate, s.airDays, s.airTime, s.episodesPerAiring || 1, s.premiereEpisodes || 0, s.totalEpisodes]; }));
+  }
+  function pushPlanItems(){
+    var now = Date.now(), items = [];
+    state.shows.forEach(function(s){
+      if(s.type === 'movie' || !s.firstAirDate || !s.totalEpisodes) return;
+      for(var e = 1; e <= Math.min(s.totalEpisodes, 500); e++){
+        var d = computeEpisodeDate(s, e), t = d.getTime();
+        if(!isNaN(t) && t > now - 3600000) items.push({ id:s.id, t:s.title, ep:e, at:t });
+      }
+    });
+    return items;
+  }
+  function pushPlanSync(force){
+    if(!booted || !push.cfg || !push.cfg.key) return;
+    clearTimeout(push.planTimer);
+    push.planTimer = setTimeout(function(){
+      var sig = pushPlanSig();
+      if(!force && sig === push.cfg.planSig && Date.now() - (push.cfg.planAt || 0) < 3*86400000) return;
+      pushApi('/plan', { items: pushPlanItems() }).then(function(){ push.cfg.planSig = sig; push.cfg.planAt = Date.now(); pushSave(); }).catch(function(){});
+    }, force ? 10 : 1500);
+  }
+  function pushCardHtml(){
+    var h = '<div class="settings-card" id="pushCard"><h3>Notifications</h3>';
+    var msg = push.msg ? '<p class="sync-note push-msg">' + stEsc(push.msg) + '</p>' : '';
+    if(!pushSupported() || !pushStandalone()){
+      return h + '<p class="sync-note" style="margin-top:4px">' + (pushStandalone() ? 'This device can\'t show web app notifications (it needs iOS 16.4 or later).' : 'Open TWatched from its Home Screen icon to turn on notifications.') + '</p></div>';
+    }
+    if(!push.cfg || !push.cfg.key){
+      return h + '<p class="sync-note" style="margin-top:4px">Get a notification when a new episode airs. Paste the address and app key of your Cloudflare Worker.</p>' +
+        '<div class="field" style="margin-top:10px"><label>Worker address</label><input type="text" id="push_url" placeholder="https://twatched-push.yourname.workers.dev" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
+        '<div class="field"><label>App key</label><input type="password" id="push_key" placeholder="the APP_KEY you set on the Worker"></div>' +
+        msg + '<button class="btn btn-primary btn-block" data-action="push-connect"' + (push.busy ? ' disabled' : '') + '>' + (push.busy ? 'Checking…' : 'Connect') + '</button></div>';
+    }
+    var on = !!push.sub, st = push.status, next = st && st.next && st.next[0];
+    h += '<div class="sync-row"><span class="sync-dot' + (on ? '' : ' off') + '"></span><div><p class="sync-row-title">' + (on ? 'On for this ' + pushDevice() : 'Off on this ' + pushDevice()) + '</p>' +
+      '<p class="sync-row-sub">' + (next ? 'Next: ' + stEsc(next.t) + ' · Ep ' + next.ep + ' · ' + fmtDateTime(new Date(next.at)) : (st ? 'No upcoming episodes yet' : 'Connected to your Worker')) + '</p></div></div>' + msg;
+    if(!on) h += '<button class="btn btn-primary btn-block" data-action="push-on" style="margin-top:10px"' + (push.busy ? ' disabled' : '') + '>Turn on notifications</button>';
+    else h += '<button class="btn btn-ghost btn-block btn-sm" data-action="push-test" style="margin-top:10px"' + (push.busy ? ' disabled' : '') + '>Send a test notification</button>' +
+      '<button class="btn btn-ghost btn-block btn-sm" data-action="push-off" style="margin-top:8px"' + (push.busy ? ' disabled' : '') + '>Turn off on this ' + pushDevice() + '</button>';
+    return h + '<button type="button" class="link-btn" data-action="push-forget">Change Worker</button></div>';
+  }
+  function pushConnect(){
+    var url = (document.getElementById('push_url') || {}).value || '', key = (document.getElementById('push_key') || {}).value || '';
+    url = url.trim(); key = key.trim();
+    if(!/^https:\/\/[^\s]+$/.test(url) || !key){ push.msg = 'Enter the Worker address (starting with https://) and the app key.'; render(); return; }
+    push.cfg = { url:url, key:key }; push.busy = true; push.msg = ''; render();
+    pushApi('/vapid').then(function(v){ push.cfg.vapid = v.publicKey; return pushApi('/status'); }).then(function(st){
+      push.status = st; push.busy = false; pushSave(); push.msg = 'Connected. Now turn notifications on for this device.'; pushPlanSync(true); render();
+    }).catch(function(e){ push.cfg = null; push.busy = false; push.msg = 'Couldn\'t connect: ' + e.message; render(); });
+  }
+  function pushOn(){
+    if(!push.reg || !push.cfg || !push.cfg.vapid){ push.msg = 'Not ready yet. Close and reopen TWatched, then try again.'; render(); return; }
+    push.busy = true; push.msg = '';
+    var p;
+    // called straight from the tap: iPhone only shows the permission prompt for a direct tap
+    try { p = push.reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: pushB64(push.cfg.vapid) }); } catch(e){ p = Promise.reject(e); }
+    render();
+    p.then(function(sub){ push.sub = sub; return pushApi('/subscribe', { subscription: sub.toJSON(), device: pushDevice() }); }).then(function(){
+      push.busy = false; push.msg = 'Notifications are on. Try “Send a test notification”.'; pushPlanSync(true); pushLoadStatus(); render();
+    }).catch(function(e){
+      push.busy = false;
+      push.msg = (window.Notification && Notification.permission === 'denied') ? 'Notifications are blocked for TWatched. Allow them in iPhone Settings → Notifications → TWatched, then try again.' : 'Couldn\'t turn on: ' + (e && e.message || e);
+      render();
+    });
+  }
+  function pushOff(){
+    var s = push.sub; if(!s) return;
+    push.busy = true; render();
+    var endpoint = s.endpoint;
+    s.unsubscribe().catch(function(){}).then(function(){ return pushApi('/unsubscribe', { endpoint:endpoint }).catch(function(){}); }).then(function(){
+      push.sub = null; push.busy = false; push.msg = 'Notifications are off on this device.'; render();
+    });
+  }
+  function pushTest(){
+    if(!push.sub) return;
+    push.busy = true; push.msg = ''; render();
+    pushApi('/test', { endpoint: push.sub.endpoint }).then(function(r){
+      push.busy = false; push.msg = r.sent ? 'Sent. It should arrive in a few seconds.' : 'Not delivered: ' + ((r.errors && r.errors[0]) || 'unknown error'); render();
+    }).catch(function(e){ push.busy = false; push.msg = 'Couldn\'t send: ' + e.message; render(); });
+  }
+  // a tapped notification opens that show
+  function openShowFromNotification(id){
+    var s = getShow(id); if(!s) return;
+    if(stShare.open) stShareClose();
+    stCloseStory(); state.rateSheet = null;
+    state.detailShowId = id; state.confirmDeleteId = null; state.scoreBoxOpen = false;
+    if(isWideLayout()){ saveTabScroll(); state.overlay = null; state.activeTab = 'browse'; render(); restoreTabScroll(); }
+    else { openOverlay('detail'); render(); }
+  }
+  pushLoad();
 
   /* ---------------- interactions ---------------- */
   function openOverlay(name){ saveTabScroll(); state.overlay = name; state.justOpenedOverlay = true; }
@@ -2433,6 +2558,16 @@
         stCloseSheet(); break;
       case 'stats-heat':
         (function(){ var p = btn.getAttribute('data-value').split('-'); state.statsMode = 'month'; state.statsAnchor = new Date(+p[0], +p[1], 1).getTime(); render(); window.scrollTo(0,0); })(); break;
+      case 'push-connect':
+        pushConnect(); break;
+      case 'push-on':
+        pushOn(); break;
+      case 'push-off':
+        pushOff(); break;
+      case 'push-test':
+        pushTest(); break;
+      case 'push-forget':
+        push.cfg = null; push.status = null; push.msg = ''; pushSave(); render(); break;
       case 'stats-genres':
         stGenreOpen = !stGenreOpen; render(); break;
       case 'stats-play':
@@ -3003,6 +3138,31 @@
       touch(); render();
     }
   });
+  // Measures how far short of the real screen bottom fixed-position things end (an iOS Home Screen
+  // quirk in some versions), so the floating menu can make up for it. 0 when there's no such gap.
+  function measureFixedGap(){
+    var gap = 0;
+    try {
+      if(pushStandalone()){
+        var sw = window.screen.width, sh = window.screen.height, portrait = window.innerHeight >= window.innerWidth;
+        var fullW = portrait ? Math.min(sw, sh) : Math.max(sw, sh), fullH = portrait ? Math.max(sw, sh) : Math.min(sw, sh);
+        if(Math.abs(window.innerWidth - fullW) < 2){   // only when the app fills the screen (not iPad split view)
+          var probe = document.createElement('div');
+          probe.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;visibility:hidden;pointer-events:none;';
+          document.body.appendChild(probe);
+          var g = Math.round(fullH - probe.getBoundingClientRect().bottom);
+          probe.parentNode.removeChild(probe);
+          if(g > 1 && g < 140) gap = g;
+        }
+      }
+    } catch(e){}
+    document.documentElement.style.setProperty('--fixed-gap', gap + 'px');
+  }
+  measureFixedGap();
+  window.addEventListener('resize', measureFixedGap);
+  window.addEventListener('orientationchange', function(){ setTimeout(measureFixedGap, 300); });
+  document.addEventListener('focusin', function(e){ if(e.target.matches && e.target.matches('input, textarea, select')) document.documentElement.classList.add('kb-open'); });
+  document.addEventListener('focusout', function(){ setTimeout(function(){ var a = document.activeElement; if(!(a && a.matches && a.matches('input, textarea, select'))) document.documentElement.classList.remove('kb-open'); }, 60); });
   document.addEventListener('submit', function(e){
     if(e.target && e.target.id === 'showForm'){
       e.preventDefault();
@@ -3044,14 +3204,23 @@
     render();
     syncAndMaybeRender();
     setInterval(syncAndMaybeRender, 5*60*1000);
+    try {
+      var openId = new URLSearchParams(location.search).get('show');
+      if(openId){ history.replaceState(null, '', location.pathname); openShowFromNotification(openId); }
+    } catch(e){}
+    pushLoadStatus();
   });
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('sw.js', { updateViaCache:'none' }).then(function(reg){
+        push.reg = reg; pushRefreshSub();
         // pick up a newly-deployed version as soon as it's ready, without waiting for a manual reopen
         if(reg.update) reg.update();
       }).catch(function(){});
+    });
+    navigator.serviceWorker.addEventListener('message', function(e){
+      if(e.data && e.data.type === 'open-show' && booted) openShowFromNotification(e.data.id);
     });
     var reloadedOnce = false;
     navigator.serviceWorker.addEventListener('controllerchange', function(){
