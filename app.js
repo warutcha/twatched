@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.17.0';
+  var APP_VERSION = 'v2.18.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -73,6 +73,7 @@
     d.setDate(d.getDate() + days);
     return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
   }
+  function isoDate(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
   function computeEpisodeDate(show, episodeNumber){
     var t = (show.airTime||'20:00').split(':');
     var h = parseInt(t[0],10) || 0, m = parseInt(t[1],10) || 0;
@@ -82,18 +83,25 @@
     var firstDrop = premiereCount(show);
     var occurrenceIndex = episodeNumber <= firstDrop ? 1 : 1 + Math.ceil((episodeNumber - firstDrop) / perDrop);
     var base = new Date(show.firstAirDate + 'T00:00:00');
+    // v2.18: days marked as a break (show.skipDates) don't count; a break on day 1 moves day 1 itself
+    var skip = (show.skipDates && show.skipDates.length) ? show.skipDates : null;
+    var days = (show.airDays && show.airDays.length) ? show.airDays : [base.getDay()];
+    var guard = 0;
+    if(skip && !isNaN(base.getTime())){
+      while(skip.indexOf(isoDate(base)) !== -1 && guard < 3000){
+        do { base.setDate(base.getDate()+1); guard++; } while(days.indexOf(base.getDay()) === -1 && guard < 3000);
+      }
+    }
     if(occurrenceIndex <= 1){
       base.setHours(h,m,0,0);
       return base;
     }
-    var days = (show.airDays && show.airDays.length) ? show.airDays : [base.getDay()];
     var count = 1;
     var cursor = new Date(base);
-    var guard = 0;
     while(count < occurrenceIndex && guard < 3000){
       cursor.setDate(cursor.getDate()+1);
       guard++;
-      if(days.indexOf(cursor.getDay()) !== -1){ count++; }
+      if(days.indexOf(cursor.getDay()) !== -1 && !(skip && skip.indexOf(isoDate(cursor)) !== -1)){ count++; }
     }
     cursor.setHours(h,m,0,0);
     return cursor;
@@ -154,6 +162,7 @@
       if(total && firstDrop >= total) base = 'All ' + total + ' episodes on ' + fmtDate(d1) + ' at ' + fmtTime(d1) + ' Thai time';
       else base = firstDrop + ' episode' + (firstDrop === 1 ? '' : 's') + ' on premiere day (' + fmtDate(d1) + '), then ' + base.charAt(0).toLowerCase() + base.slice(1);
     }
+    base += skScheduleNote(show);
     if(show.airTimeZone && show.airTimeZone !== 'TH' && show.airTimeOriginal){
       var tzInfo = TZ_OPTIONS.filter(function(t){return t.v===show.airTimeZone;})[0];
       base += ' (' + fmtTime(new Date('2000-01-01T'+show.airTimeOriginal+':00')) + ' ' + (tzInfo?tzInfo.l:show.airTimeZone) + ')';
@@ -171,10 +180,27 @@
     if(typeof c === 'string') return { name:c, photo:null, crop:{x:50,y:50,zoom:100} };
     return { name:(c && c.name) || '', photo:(c && c.photo) || null, crop:(c && c.crop) || {x:50,y:50,zoom:100} };
   }
+  // Pictures are kept as data: URIs in the saved data. Putting those long strings into the page on
+  // every render made each screen several MB of HTML to rebuild (slow tab switches); a short blob:
+  // address per picture (made once, then reused) shows the very same image with almost nothing to parse.
+  var imgUrlCache = {};
+  function imgUrl(u){
+    if(typeof u !== 'string' || u.slice(0,5) !== 'data:' || !window.URL || !URL.createObjectURL || !window.Blob) return u;
+    var key = u.length + ':' + u.slice(-48) + ':' + u.slice(5, 60), list = imgUrlCache[key] || (imgUrlCache[key] = []);
+    for(var k = 0; k < list.length; k++) if(list[k].src === u) return list[k].url;
+    try {
+      var comma = u.indexOf(','), meta = u.slice(5, comma), b64 = /;base64/.test(meta), mime = meta.split(';')[0] || 'application/octet-stream';
+      var raw = b64 ? atob(u.slice(comma + 1)) : decodeURIComponent(u.slice(comma + 1)), arr = new Uint8Array(raw.length);
+      for(var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+      var url = URL.createObjectURL(new Blob([arr], { type:mime }));
+      list.push({ src:u, url:url });
+      return url;
+    } catch(e){ return u; }
+  }
   function cropImgTag(photoUrl, crop, cls){
     if(!photoUrl) return '';
     var c = crop || {x:50,y:50,zoom:100};
-    return '<img class="poster-img ' + (cls||'') + '" src="' + photoUrl + '" alt="" draggable="false" style="object-position:' + c.x + '% ' + c.y + '%; transform-origin:' + c.x + '% ' + c.y + '%; transform:scale(' + (c.zoom/100) + ');">';
+    return '<img class="poster-img ' + (cls||'') + '" src="' + imgUrl(photoUrl) + '" alt="" draggable="false" style="object-position:' + c.x + '% ' + c.y + '%; transform-origin:' + c.x + '% ' + c.y + '%; transform:scale(' + (c.zoom/100) + ');">';
   }
   function posterImgTag(showLike, slot, cls){
     if(!showLike || !showLike.posterImage) return '';
@@ -744,7 +770,7 @@
   }
 
   function stPoster(s, extra, style){
-    var img = s.posterImage ? '<img src="' + s.posterImage + '" alt="" draggable="false">' : '<span class="st-ini">' + initialOf(s) + '</span>';
+    var img = s.posterImage ? '<img src="' + imgUrl(s.posterImage) + '" alt="" draggable="false">' : '<span class="st-ini">' + initialOf(s) + '</span>';
     return '<div class="st-pst" style="' + (style || '') + (s.posterImage ? '' : posterStyle(s)) + '">' + img + (extra || '') + '</div>';
   }
   function stRoundTop(x,y,w,h,r){ r = Math.min(r,h); return 'M'+x+','+(y+h)+'V'+(y+r)+'Q'+x+','+y+' '+(x+r)+','+y+'H'+(x+w-r)+'Q'+(x+w)+','+y+' '+(x+w)+','+(y+r)+'V'+(y+h)+'Z'; }
@@ -938,7 +964,7 @@
     c.push({ edge:'#0B1E28', html:'<div class="st-bgfill"><div class="st-mosaic">' + tiles + '</div><div class="st-shade"></div></div><div style="margin-top:auto"><div class="st-k">Your ' + stEsc(lab) + ' wrap</div><div class="st-big">' + stHm(st.mins) + '</div><div class="st-p">of watching, across ' + T.length + ' title' + (T.length === 1 ? '' : 's') + '.' + (st.estMins ? ' (≈' + stHm(st.estMins) + ' estimated)' : '') + '</div></div>' });
     c.push({ edge:'#1B2036', bg:'linear-gradient(160deg,#3C2F6B,#1B2036)', html:'<div class="st-k">By the numbers</div><div class="st-h">' + st.eps + ' episode' + (st.eps === 1 ? '' : 's') + (st.movies ? ', ' + st.movies + ' movie' + (st.movies > 1 ? 's' : '') : '') + '</div><div class="st-p">All ' + T.length + ' title' + (T.length === 1 ? '' : 's') + ' you watched, most-watched first.</div><div class="st-strip st-fit">' + T.slice(0,15).map(function(t){ return stPoster(t.s); }).join('') + '</div>' + (T.length > 15 ? '<p class="st-p" style="margin-top:8px">+' + (T.length-15) + ' more</p>' : '') });
     var top = T[0], ts = top.s;
-    c.push({ edge:'#141414', html:'<div class="st-bgfill">' + (ts.posterImage ? '<div class="st-blurbg" style="background-image:url(' + ts.posterImage + ')"></div>' : '<div class="st-blurbg" style="' + posterStyle(ts) + '"></div>') + '</div><div class="st-k">Your #1</div>' + stPoster(ts, '', 'width:56%;margin:12px auto 12px;border-radius:14px;').replace('class="st-pst"', 'class="st-pst st-fit"') +
+    c.push({ edge:'#141414', html:'<div class="st-bgfill">' + (ts.posterImage ? '<div class="st-blurbg" style="background-image:url(' + imgUrl(ts.posterImage) + ')"></div>' : '<div class="st-blurbg" style="' + posterStyle(ts) + '"></div>') + '</div><div class="st-k">Your #1</div>' + stPoster(ts, '', 'width:56%;margin:12px auto 12px;border-radius:14px;').replace('class="st-pst"', 'class="st-pst st-fit"') +
       '<div class="st-h" style="text-align:center;font-size:24px;margin:0">' + stEsc(ts.title) + '</div><div class="st-p" style="text-align:center">' + stHm(top.mins) + (ts.type === 'movie' ? '' : ' · ' + top.eps + ' episode' + (top.eps === 1 ? '' : 's')) + '</div>' +
       (T.length > 1 ? '<div class="st-runners">' + T.slice(1,5).map(function(t, n){ return '<div>' + stPoster(t.s, '<span class="st-badge">#' + (n+2) + '</span>') + stHm(t.mins) + '</div>'; }).join('') + '</div>' : '') });
     if(st.genres.length) c.push({ edge:'#4A2F0A', bg:'linear-gradient(160deg,#A9762A,#4A2F0A)', html:'<div class="st-k">Your taste</div><div class="st-h">You\'re a ' + stEsc(st.genres[0].name) + (st.genres[1] ? ' &amp; ' + stEsc(st.genres[1].name) : '') + ' person</div>' +
@@ -1331,7 +1357,7 @@
 
   function tabNavHtml(){
     var tabs = [['home','Home'],['browse','Browse'],['stats','Stats'],['settings','Settings']];
-    return '<nav class="tab-nav">' + tabs.map(function(t){
+    return '<nav class="tab-nav" style="--i:' + Math.max(0, NAV_TABS.indexOf(state.activeTab)) + '"><span class="tab-ind" aria-hidden="true"></span>' + tabs.map(function(t){
       var key = t[0], label = t[1];
       var iconKey = key==='home'?'home':(key==='browse'?'grid':(key==='stats'?'chart':'settings'));
       return '<button type="button" class="tab-nav-btn' + (state.activeTab===key?' active':'') + '" data-action="set-tab" data-tab="' + key + '">' +
@@ -1766,8 +1792,10 @@
     var pct = Math.round((show.watched/show.totalEpisodes)*100);
     var rows = '';
     var durSuffix = show.episodeMinutes ? ' · ' + show.episodeMinutes + ' min' : '';
+    var skq = skActive(show);
     for(var i=1;i<=show.totalEpisodes;i++){
       var d = computeEpisodeDate(show, i);
+      while(skq.length && skq[0] < isoDate(d)) rows += skBreakRow(show, skq.shift());
       if(i <= show.watched){
         if(i === show.watched){
           rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span>' + kuDateCell(show, i, d) + epShareBtn(show, i) + '</li>';
@@ -1775,11 +1803,11 @@
           rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('check') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span>' + kuDateCell(show, i, d) + epShareBtn(show, i) + '</li>';
         }
       } else if(i === show.watched+1 && info.aired){
-        rows += '<li class="ep-row ep-row--ready"><button class="ep-row__check" data-action="check-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDateTime(d) + '</span></li>';
+        rows += '<li class="ep-row ep-row--ready" data-action="skip-ask" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check" data-action="check-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDateTime(d) + '</span></li>';
       } else if(i === show.watched+1){
-        rows += '<li class="ep-row ep-row--waiting"><span class="ep-row__num">' + icon('clock') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">Airs ' + fmtDateTime(d) + '</span></li>';
+        rows += '<li class="ep-row ep-row--waiting" data-action="skip-ask" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('clock') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">Airs ' + fmtDateTime(d) + '</span></li>';
       } else {
-        rows += '<li class="ep-row ep-row--locked"><span class="ep-row__num">' + icon('lock') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
+        rows += '<li class="ep-row ep-row--locked" data-action="skip-ask" data-show="' + show.id + '" data-ep="' + i + '"><span class="ep-row__num">' + icon('lock') + '</span><span class="ep-row__title">Episode ' + i + durSuffix + '</span><span class="ep-row__date">' + fmtDate(d) + '</span></li>';
       }
     }
     var deleteConfirming = state.confirmDeleteId === show.id;
@@ -1823,7 +1851,7 @@
     var total = Math.max(1, parseInt(d.totalEpisodes,10) || 1);
     if(!d.firstAirDate || isNaN(new Date(d.firstAirDate + 'T00:00:00').getTime())) return '<p class="crop-hint" style="margin:0">Set the date episode 1 airs to see the plan.</p>';
     var per = Math.max(1, parseInt(d.episodesPerAiring,10) || 1), prem = parseInt(d.premiereEpisodes,10);
-    var sh = { firstAirDate:d.firstAirDate, airDays:(d.airDays && d.airDays.length) ? d.airDays : [0], airTime:d.airTime || '20:00', episodesPerAiring:per, premiereEpisodes: prem > 0 ? prem : '' };
+    var sh = { firstAirDate:d.firstAirDate, airDays:(d.airDays && d.airDays.length) ? d.airDays : [0], airTime:d.airTime || '20:00', episodesPerAiring:per, premiereEpisodes: prem > 0 ? prem : '', skipDates:d.skipDates || null };
     var groups = [], i, dt, k;
     for(i = 1; i <= Math.min(total, 400); i++){ dt = computeEpisodeDate(sh, i); k = dt.toDateString();
       if(!groups.length || groups[groups.length-1].k !== k) groups.push({ k:k, d:dt, a:i, b:i }); else groups[groups.length-1].b = i; }
@@ -2172,7 +2200,7 @@
   // the times of upcoming episodes, from the same calculation the app uses everywhere
   function pushPlanSig(){
     return JSON.stringify(state.shows.filter(function(s){ return s.type !== 'movie'; }).map(function(s){
-      return [s.id, s.title, s.firstAirDate, s.airDays, s.airTime, s.episodesPerAiring || 1, s.premiereEpisodes || 0, s.totalEpisodes]; }));
+      return [s.id, s.title, s.firstAirDate, s.airDays, s.airTime, s.episodesPerAiring || 1, s.premiereEpisodes || 0, s.totalEpisodes, s.skipDates || []]; }));
   }
   function pushPlanItems(){
     var now = Date.now(), items = [];
@@ -2289,7 +2317,7 @@
   // air times, remembered per schedule (long shows would otherwise recount the calendar on every render)
   var kuAirCache = {};
   function kuAir(show, ep){
-    var sig = show.id + '|' + show.firstAirDate + '|' + show.airTime + '|' + (show.airDays || []).join(',') + '|' + (show.episodesPerAiring || 1) + '|' + (show.premiereEpisodes || 0);
+    var sig = show.id + '|' + (show.skipDates || []).join(',') + '|' + show.firstAirDate + '|' + show.airTime + '|' + (show.airDays || []).join(',') + '|' + (show.episodesPerAiring || 1) + '|' + (show.premiereEpisodes || 0);
     var c = kuAirCache[sig]; if(!c){ c = kuAirCache[sig] = {}; }
     if(!(ep in c)){ var d = computeEpisodeDate(show, ep); c[ep] = stValid(d) ? d.getTime() : null; }
     return c[ep];
@@ -2413,6 +2441,118 @@
     return out;
   }
 
+  /* ---------------- Breaks: an air day with no episode (v2.18) ----------------
+     show.skipDates holds 'YYYY-MM-DD' days. computeEpisodeDate doesn't count them, so every later
+     episode moves to the next air day; everything else (Home, release plan, notifications, Keeping up)
+     follows on its own. The list syncs like any other field of the series. */
+  function skIsAirDay(show, iso){
+    var d = new Date(iso + 'T00:00:00'); if(isNaN(d.getTime())) return false;
+    var base = new Date(show.firstAirDate + 'T00:00:00'), days = (show.airDays && show.airDays.length) ? show.airDays : [base.getDay()];
+    return days.indexOf(d.getDay()) !== -1 && d >= base;
+  }
+  // breaks that actually move something: on an air day, and not after the last episode
+  function skActive(show){
+    if(!show || show.type === 'movie' || !(show.skipDates && show.skipDates.length) || !show.firstAirDate) return [];
+    var last = computeEpisodeDate(show, show.totalEpisodes || 1), lastIso = isoDate(last);
+    return show.skipDates.filter(function(x, i, a){ return a.indexOf(x) === i && skIsAirDay(show, x) && x < lastIso; }).sort();
+  }
+  function skFirstEpOn(show, ep){ var iso = isoDate(computeEpisodeDate(show, ep)); while(ep > 1 && isoDate(computeEpisodeDate(show, ep - 1)) === iso) ep--; return ep; }
+  function skLastEpOn(show, ep){ var iso = isoDate(computeEpisodeDate(show, ep)); while(ep < show.totalEpisodes && isoDate(computeEpisodeDate(show, ep + 1)) === iso) ep++; return ep; }
+  function skOpenSheet(showId, ep){
+    var show = getShow(showId); if(!show || show.type === 'movie' || ep <= show.watched || ep > show.totalEpisodes) return;
+    var a = skFirstEpOn(show, ep); if(a <= show.watched) a = show.watched + 1;
+    var b = skLastEpOn(show, ep), d = computeEpisodeDate(show, ep), iso = isoDate(d);
+    var after = JSON.parse(JSON.stringify(show)); after.skipDates = (show.skipDates || []).concat([iso]);
+    var row = function(e, tag){ return '<li><span>Ep ' + e + (tag || '') + '</span><s>' + fmtDate(computeEpisodeDate(show, e)) + '</s><b>' + fmtDate(computeEpisodeDate(after, e)) + '</b></li>'; };
+    var rows = '', upto = Math.min(show.totalEpisodes, a + 2);
+    for(var e = a; e <= upto; e++) rows += row(e, e === show.totalEpisodes ? ' (last)' : '');
+    if(upto < show.totalEpisodes) rows += (upto < show.totalEpisodes - 1 ? '<li class="dots"><span>…</span></li>' : '') + row(show.totalEpisodes, ' (last)');
+    var eps = a === b ? 'Episode ' + a + ' was' : 'Episodes ' + a + '–' + b + ' were';
+    stOpenSheet('<h4>No episode on ' + fmtDate(d) + '?</h4><p class="kk-sub">' + stEsc(show.title) + ' · ' + eps + ' due ' + fmtDateTime(d) + '. Mark this day as a break and every later episode moves to the next air day.</p>' +
+      '<ul class="sk-prev">' + rows + '</ul>' +
+      '<div class="sk-acts"><button type="button" class="btn btn-ghost" data-action="stats-close-sheet">Cancel</button><button type="button" class="btn btn-primary" data-action="skip-confirm" data-show="' + show.id + '" data-date="' + iso + '">Skip ' + WEEKDAY_LABELS[d.getDay()] + ' ' + d.getDate() + '</button></div>' +
+      '<p class="kk-note" style="text-align:center">You can undo this from the episode list.</p>');
+  }
+  function skConfirm(showId, iso){
+    var show = getShow(showId); if(!show || !/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return;
+    stCloseSheet();
+    var list = (show.skipDates || []).slice(); if(list.indexOf(iso) === -1) list.push(iso);
+    show.skipDates = list.sort();
+    touch(); render(); showToast(fmtDate(new Date(iso + 'T00:00:00')) + ' skipped · later episodes moved');
+  }
+  function skUndo(showId, iso){
+    var show = getShow(showId); if(!show || !show.skipDates) return;
+    var list = show.skipDates.filter(function(x){ return x !== iso; });
+    if(list.length) show.skipDates = list; else delete show.skipDates;
+    touch(); render(); showToast('Break removed · ' + fmtDate(new Date(iso + 'T00:00:00')));
+  }
+  function skBreakRow(show, iso){
+    return '<li class="ep-row ep-row--break"><span class="ep-row__num">' + icon('close') + '</span><span class="ep-row__title">No episode <small>break</small></span><span class="ep-row__date">' + fmtDate(new Date(iso + 'T00:00:00')) + '</span>' +
+      '<button type="button" class="sk-undo" data-action="skip-undo" data-show="' + show.id + '" data-date="' + iso + '">Undo</button></li>';
+  }
+  function skScheduleNote(show){
+    var a = skActive(show); if(!a.length) return '';
+    return a.length <= 3 ? ' · break ' + a.map(function(x){ return fmtDate(new Date(x + 'T00:00:00')); }).join(', ') : ' · ' + a.length + ' breaks';
+  }
+
+  /* Home card: press and hold for a small menu (Open series · No episode on …?) */
+  var skPress = { timer:null, x:0, y:0, card:null, fired:0 };
+  function skMenuClose(){ var m = document.getElementById('skMenu'); if(m) m.parentNode.removeChild(m); document.documentElement.classList.remove('sk-menu-open'); }
+  function skMenuOpen(card){
+    var id = card.getAttribute('data-show'), show = getShow(id); if(!show) return;
+    var info = getNextEpisodeInfo(show, Date.now()); if(info.completed) return;
+    skMenuClose();
+    var r = card.getBoundingClientRect(), wrap = document.createElement('div');
+    wrap.id = 'skMenu'; wrap.className = 'sk-menu';
+    var clone = card.cloneNode(true); clone.removeAttribute('data-action'); clone.classList.add('sk-lifted');
+    Array.prototype.forEach.call(clone.querySelectorAll('[data-action]'), function(el){ el.removeAttribute('data-action'); });
+    clone.style.cssText = 'position:fixed;left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;height:' + r.height + 'px;margin:0;';
+    var d = info.airDate, below = r.bottom + 132 < window.innerHeight;
+    var menu = '<div class="sk-pop" style="left:' + Math.max(12, r.left + 8) + 'px;' + (below ? 'top:' + (r.bottom + 8) : 'top:' + Math.max(12, r.top - 116)) + 'px">' +
+      '<button type="button" data-action="sk-menu-open" data-show="' + id + '">' + icon('right') + 'Open series</button>' +
+      '<button type="button" data-action="sk-menu-skip" data-show="' + id + '" data-ep="' + info.number + '">' + icon('close') + 'No episode on ' + fmtDate(d) + '?</button></div>';
+    wrap.innerHTML = '<div class="sk-dim" data-action="sk-menu-close"></div>' + menu;
+    wrap.insertBefore(clone, wrap.children[1]);
+    document.body.appendChild(wrap); document.documentElement.classList.add('sk-menu-open');
+  }
+  function skPressCancel(){ clearTimeout(skPress.timer); skPress.timer = null; if(skPress.card) skPress.card.classList.remove('sk-pressing'); skPress.card = null; }
+  document.addEventListener('pointerdown', function(e){
+    var card = e.target.closest && e.target.closest('.ep-card[data-show]');
+    if(!card || e.target.closest('.check-btn') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    skPressCancel(); skPress.card = card; skPress.x = e.clientX; skPress.y = e.clientY;
+    card.classList.add('sk-pressing');
+    skPress.timer = setTimeout(function(){ var c = skPress.card; skPress.timer = null; skPress.card = null; if(!c || !document.body.contains(c)) return; c.classList.remove('sk-pressing'); skPress.fired = Date.now(); skMenuOpen(c); }, 480);
+  });
+  document.addEventListener('pointermove', function(e){ if(skPress.card && (Math.abs(e.clientX - skPress.x) > 8 || Math.abs(e.clientY - skPress.y) > 8)) skPressCancel(); });
+  document.addEventListener('pointerup', function(){ if(skPress.timer) skPressCancel(); });
+  document.addEventListener('pointercancel', skPressCancel);
+  window.addEventListener('scroll', function(){ if(skPress.card) skPressCancel(); }, { passive:true });
+  // the tap that ends a long press must not also open the card
+  document.addEventListener('click', function(e){ if(skPress.fired && Date.now() - skPress.fired < 900 && !(e.target.closest && e.target.closest('#skMenu'))){ skPress.fired = 0; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener('contextmenu', function(e){ if(e.target.closest && e.target.closest('.ep-card[data-show]')){ e.preventDefault(); if(!document.getElementById('skMenu')){ skPressCancel(); skPress.fired = Date.now(); skMenuOpen(e.target.closest('.ep-card[data-show]')); } } });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') skMenuClose(); });
+
+  /* Menu bar: the highlight slides from tab to tab, with a little stretch, like Instagram's */
+  var NAV_TABS = ['home','browse','stats','settings'];
+  function navSlide(from, to){
+    var nav = document.querySelector('.app-screen[style*="block"] .tab-nav'); if(!nav) return;
+    var ind = nav.querySelector('.tab-ind'), btn = nav.querySelector('.tab-nav-btn.active .icon');
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(still || !ind || !ind.animate || from < 0 || from === to){ navPressedAt = 0; return; }
+    var w = ind.getBoundingClientRect().width + 4, a = from * w, b = to * w, mid = (a + b) / 2, stretch = 1 + Math.min(0.32, Math.abs(to - from) * 0.12);
+    try {
+      ind.animate([{ transform:'translateX(' + a + 'px)' }, { transform:'translateX(' + mid + 'px) scale(' + stretch + ',0.9)', offset:0.45 }, { transform:'translateX(' + b + 'px)' }],
+        { duration:420, easing:'cubic-bezier(.3,.9,.3,1.04)' });
+      if(btn) btn.animate([{ transform:'scale(.82)' }, { transform:'scale(1.12)', offset:0.55 }, { transform:'scale(1)' }], { duration:360, easing:'ease-out' });
+      if(navPressedAt && Date.now() - navPressedAt < 1500) nav.animate([{ transform:'translateX(-50%) scale(1.035)' }, { transform:'translateX(-50%) scale(1)' }], { duration:280, easing:'cubic-bezier(.3,1.3,.5,1)' });
+    } catch(e){}
+    navPressedAt = 0;
+  }
+  var navPressedAt = 0;
+  document.addEventListener('pointerdown', function(e){ var nav = e.target.closest && e.target.closest('.tab-nav'); if(nav){ nav.classList.add('is-pressed'); navPressedAt = Date.now(); } });
+  function navRelease(){ Array.prototype.forEach.call(document.querySelectorAll('.tab-nav.is-pressed'), function(n){ n.classList.remove('is-pressed'); }); }
+  document.addEventListener('pointerup', navRelease); document.addEventListener('pointercancel', navRelease);
+
   /* ---------------- interactions ---------------- */
   function openOverlay(name){ saveTabScroll(); state.overlay = name; state.justOpenedOverlay = true; }
 
@@ -2512,7 +2652,7 @@
       state.formDraft = { id:s.id, type:'show', title:s.title, originalTitle: s.originalTitle || '', seasonLabel: s.seasonLabel || '', genres:(s.genres||[]).slice(), cast:(s.cast||[]).map(castEntry), nationality: s.nationality || '', category: s.category || (state.categories[0]?state.categories[0].id:''), folderIds:(s.folderIds||[]).slice(),
         totalEpisodes:s.totalEpisodes, airDays:(s.airDays||[]).slice(),
         airTime:s.airTime, airTimeZone: s.airTimeZone || 'TH', airTimeOriginal: s.airTimeOriginal || s.airTime,
-        firstAirDate:s.firstAirDate,
+        firstAirDate:s.firstAirDate, skipDates:s.skipDates ? s.skipDates.slice() : null,
         channel:s.channel||'', platform:s.platform||'', posterIndex:s.posterIndex||0,
         posterImage: s.posterImage || null,
         posterCrops: s.posterCrops ? JSON.parse(JSON.stringify(s.posterCrops)) : defaultCrops(),
@@ -2643,6 +2783,7 @@
     switch(action){
       case 'set-tab':
         (function(){
+          var fromTab = state.overlay ? -1 : NAV_TABS.indexOf(state.activeTab);
           state.activeTab = btn.getAttribute('data-tab');
           state.overlay = null;
           if(state.activeTab === 'browse'){ state.browseViewMode = 'all'; state.browseEditMode = false; }
@@ -2650,6 +2791,7 @@
           render();
           window.scrollTo(0, 0);
           tabScrollMemory[state.activeTab] = 0;
+          navSlide(fromTab, NAV_TABS.indexOf(state.activeTab));
         })(); break;
       case 'open-rate':
         openRateSheet(btn.getAttribute('data-show'), parseInt(btn.getAttribute('data-ep'),10), false); break;
@@ -2679,6 +2821,18 @@
             state.rateSheet = null; touch(); render(); showToast('Episode ' + rs.ep + ' unmarked');
           }
         })(); break;
+      case 'skip-ask':
+        skOpenSheet(btn.getAttribute('data-show'), parseInt(btn.getAttribute('data-ep'),10)); break;
+      case 'skip-confirm':
+        skConfirm(btn.getAttribute('data-show'), btn.getAttribute('data-date')); break;
+      case 'skip-undo':
+        skUndo(btn.getAttribute('data-show'), btn.getAttribute('data-date')); break;
+      case 'sk-menu-close':
+        skMenuClose(); break;
+      case 'sk-menu-open':
+        skMenuClose(); openShowFromNotification(btn.getAttribute('data-show')); break;
+      case 'sk-menu-skip':
+        skMenuClose(); skOpenSheet(btn.getAttribute('data-show'), parseInt(btn.getAttribute('data-ep'),10)); break;
       case 'toggle-pace-box':
         state.paceBoxOpen = !state.paceBoxOpen; render(); break;
       case 'ku-key':
