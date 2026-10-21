@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.18.0';
+  var APP_VERSION = 'v2.18.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -2495,41 +2495,71 @@
     return a.length <= 3 ? ' · break ' + a.map(function(x){ return fmtDate(new Date(x + 'T00:00:00')); }).join(', ') : ' · ' + a.length + ' breaks';
   }
 
-  /* Home card: press and hold for a small menu (Open series · No episode on …?) */
+  /* Home card: press and hold for a small menu (Open series · No episode on …?)
+     v2.18.1: feels like an iPhone preview. The card sinks a little while you hold it, then pops up
+     over a soft blur and the menu springs out of it; letting go early bounces it back. A light tap
+     is played where the phone allows it from a web app. Nothing on screen can be text-selected. */
   var skPress = { timer:null, x:0, y:0, card:null, fired:0 };
-  function skMenuClose(){ var m = document.getElementById('skMenu'); if(m) m.parentNode.removeChild(m); document.documentElement.classList.remove('sk-menu-open'); }
+  var SK_HOLD = 450;
+  var skHapEl = null;
+  function skHaptic(){
+    try {
+      if(navigator.vibrate){ navigator.vibrate(12); return; }
+      if(!skHapEl){
+        skHapEl = document.createElement('label'); skHapEl.className = 'sk-hap'; skHapEl.setAttribute('aria-hidden', 'true');
+        skHapEl.innerHTML = '<input type="checkbox" switch tabindex="-1">';
+        document.body.appendChild(skHapEl);
+      }
+      skHapEl.click();
+      var inp = skHapEl.querySelector('input'); if(document.activeElement === inp) inp.blur();
+    } catch(e){}
+  }
+  function skMenuClose(now){
+    var m = document.getElementById('skMenu'); if(!m) return;
+    var src = m._card;
+    var done = function(){ if(m.parentNode) m.parentNode.removeChild(m); if(src) src.classList.remove('sk-hidden'); if(!document.getElementById('skMenu')) document.documentElement.classList.remove('sk-menu-open'); };
+    m.id = ''; 
+    if(now === true || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)){ done(); return; }
+    m.classList.add('closing'); setTimeout(done, 190);
+  }
   function skMenuOpen(card){
     var id = card.getAttribute('data-show'), show = getShow(id); if(!show) return;
     var info = getNextEpisodeInfo(show, Date.now()); if(info.completed) return;
-    skMenuClose();
-    var r = card.getBoundingClientRect(), wrap = document.createElement('div');
-    wrap.id = 'skMenu'; wrap.className = 'sk-menu';
-    var clone = card.cloneNode(true); clone.removeAttribute('data-action'); clone.classList.add('sk-lifted');
+    skMenuClose(true);
+    // the card is slightly shrunk while held: use its real size, centred on where it is now
+    var b = card.getBoundingClientRect(), W = card.offsetWidth, H = card.offsetHeight;
+    var r = { left:b.left - (W - b.width)/2, top:b.top - (H - b.height)/2, width:W, height:H }; r.right = r.left + W; r.bottom = r.top + H;
+    var wrap = document.createElement('div');
+    wrap.id = 'skMenu'; wrap.className = 'sk-menu'; wrap._card = card;
+    var clone = card.cloneNode(true); clone.removeAttribute('data-action'); clone.classList.remove('sk-pressing'); clone.classList.add('sk-lifted');
     Array.prototype.forEach.call(clone.querySelectorAll('[data-action]'), function(el){ el.removeAttribute('data-action'); });
     clone.style.cssText = 'position:fixed;left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;height:' + r.height + 'px;margin:0;';
     var d = info.airDate, below = r.bottom + 132 < window.innerHeight;
-    var menu = '<div class="sk-pop" style="left:' + Math.max(12, r.left + 8) + 'px;' + (below ? 'top:' + (r.bottom + 8) : 'top:' + Math.max(12, r.top - 116)) + 'px">' +
+    var menu = '<div class="sk-pop' + (below ? '' : ' up') + '" style="left:' + Math.max(12, r.left + 8) + 'px;' + (below ? 'top:' + (r.bottom + 10) : 'top:' + Math.max(12, r.top - 118)) + 'px">' +
       '<button type="button" data-action="sk-menu-open" data-show="' + id + '">' + icon('right') + 'Open series</button>' +
       '<button type="button" data-action="sk-menu-skip" data-show="' + id + '" data-ep="' + info.number + '">' + icon('close') + 'No episode on ' + fmtDate(d) + '?</button></div>';
     wrap.innerHTML = '<div class="sk-dim" data-action="sk-menu-close"></div>' + menu;
     wrap.insertBefore(clone, wrap.children[1]);
     document.body.appendChild(wrap); document.documentElement.classList.add('sk-menu-open');
+    card.classList.add('sk-hidden'); card.classList.remove('sk-pressing');
+    skHaptic();
   }
   function skPressCancel(){ clearTimeout(skPress.timer); skPress.timer = null; if(skPress.card) skPress.card.classList.remove('sk-pressing'); skPress.card = null; }
   document.addEventListener('pointerdown', function(e){
     var card = e.target.closest && e.target.closest('.ep-card[data-show]');
-    if(!card || e.target.closest('.check-btn') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if(!card || e.target.closest('.check-btn') || (e.pointerType === 'mouse' && e.button !== 0) || document.getElementById('skMenu')) return;
     skPressCancel(); skPress.card = card; skPress.x = e.clientX; skPress.y = e.clientY;
     card.classList.add('sk-pressing');
-    skPress.timer = setTimeout(function(){ var c = skPress.card; skPress.timer = null; skPress.card = null; if(!c || !document.body.contains(c)) return; c.classList.remove('sk-pressing'); skPress.fired = Date.now(); skMenuOpen(c); }, 480);
+    skPress.timer = setTimeout(function(){ var c = skPress.card; skPress.timer = null; skPress.card = null; if(!c || !document.body.contains(c)) return; skPress.fired = Date.now(); skMenuOpen(c); }, SK_HOLD);
   });
   document.addEventListener('pointermove', function(e){ if(skPress.card && (Math.abs(e.clientX - skPress.x) > 8 || Math.abs(e.clientY - skPress.y) > 8)) skPressCancel(); });
   document.addEventListener('pointerup', function(){ if(skPress.timer) skPressCancel(); });
   document.addEventListener('pointercancel', skPressCancel);
   window.addEventListener('scroll', function(){ if(skPress.card) skPressCancel(); }, { passive:true });
   // the tap that ends a long press must not also open the card
-  document.addEventListener('click', function(e){ if(skPress.fired && Date.now() - skPress.fired < 900 && !(e.target.closest && e.target.closest('#skMenu'))){ skPress.fired = 0; e.preventDefault(); e.stopPropagation(); } }, true);
-  document.addEventListener('contextmenu', function(e){ if(e.target.closest && e.target.closest('.ep-card[data-show]')){ e.preventDefault(); if(!document.getElementById('skMenu')){ skPressCancel(); skPress.fired = Date.now(); skMenuOpen(e.target.closest('.ep-card[data-show]')); } } });
+  document.addEventListener('click', function(e){ var t = e.target.closest ? e.target : null; if(t && t.closest('.sk-hap')) return; if(skPress.fired && Date.now() - skPress.fired < 900 && !(t && t.closest('.sk-pop button'))){ skPress.fired = 0; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener('contextmenu', function(e){ if(e.target.closest && (e.target.closest('.ep-card[data-show]') || e.target.closest('.sk-menu'))){ e.preventDefault(); if(!document.getElementById('skMenu') && e.target.closest('.ep-card[data-show]')){ skPressCancel(); skPress.fired = Date.now(); skMenuOpen(e.target.closest('.ep-card[data-show]')); } } });
+  document.addEventListener('selectstart', function(e){ if(document.getElementById('skMenu') || (e.target.closest && e.target.closest('.ep-card'))) e.preventDefault(); });
   document.addEventListener('keydown', function(e){ if(e.key === 'Escape') skMenuClose(); });
 
   /* Menu bar: the highlight slides from tab to tab, with a little stretch, like Instagram's */
@@ -2830,9 +2860,9 @@
       case 'sk-menu-close':
         skMenuClose(); break;
       case 'sk-menu-open':
-        skMenuClose(); openShowFromNotification(btn.getAttribute('data-show')); break;
+        skMenuClose(true); openShowFromNotification(btn.getAttribute('data-show')); break;
       case 'sk-menu-skip':
-        skMenuClose(); skOpenSheet(btn.getAttribute('data-show'), parseInt(btn.getAttribute('data-ep'),10)); break;
+        skMenuClose(true); skOpenSheet(btn.getAttribute('data-show'), parseInt(btn.getAttribute('data-ep'),10)); break;
       case 'toggle-pace-box':
         state.paceBoxOpen = !state.paceBoxOpen; render(); break;
       case 'ku-key':
