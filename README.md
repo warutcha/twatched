@@ -12,7 +12,7 @@ A personal episode tracker — a static site you host yourself on GitHub Pages, 
 | `sw.js` | Offline app-shell caching |
 | `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` | App icons |
 
-Everything is static — no build step, no server. Push it to a repo, turn on Pages, done.
+Everything is static — no build step, no server. Push it to a repo, turn on Pages, done. 
 
 ---
 
