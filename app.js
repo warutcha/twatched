@@ -62,7 +62,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.18.1';
+  var APP_VERSION = 'v2.19.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1428,6 +1428,13 @@
   }
 
   /* ---------------- HOME ---------------- */
+  // v2.19: episodes already out that haven't been ticked yet (this one included). Episodes come out in
+  // order, so counting stops at the first one still to come. Air times are cached per schedule (kuAir).
+  function upWaiting(show, nowMs){
+    var n = 0, total = show.totalEpisodes || 0;
+    for(var e = (show.watched || 0) + 1; e <= total; e++){ var t = kuAir(show, e); if(t != null && t <= nowMs) n++; else break; }
+    return n;
+  }
   function renderHome(){
     var now = Date.now();
     var active = [];
@@ -1457,7 +1464,8 @@
       out += '<div class="empty-block"><span>' + icon('check') + '</span><strong>You\'re all caught up</strong><p>New episode cards will show up here the moment they air.</p></div>';
     } else {
       active.forEach(function(a){
-        out += '<article class="ep-card" data-show="' + a.show.id + '" data-action="open-detail">' +
+        var waiting = upWaiting(a.show, now);
+        out += '<article class="ep-card' + (waiting >= 3 ? ' ep-card--pile3' : waiting === 2 ? ' ep-card--pile2' : '') + '" data-show="' + a.show.id + '" data-action="open-detail">' +
           '<div class="ep-card__stub" style="' + (a.show.posterImage ? '' : posterStyle(a.show)) + '">' +
             posterImgTag(a.show,'thumbnail') +
             (a.show.posterImage ? '' : '<span class="ep-card__initial">' + initialOf(a.show) + '</span>') +
@@ -1465,7 +1473,7 @@
           '<div class="ep-card__perf"></div>' +
           '<div class="ep-card__body">' +
             '<p class="ep-card__show">' + a.show.title + '</p>' +
-            '<h3 class="ep-card__ep">Episode ' + a.info.number + '</h3>' +
+            '<h3 class="ep-card__ep">Episode ' + a.info.number + (waiting > 1 ? '<span class="ep-card__count" aria-label="' + waiting + ' episodes out and not watched yet">×' + waiting + '</span>' : '') + '</h3>' +
             '<p class="ep-card__meta">Released ' + fmtDateTime(a.info.airDate) + (a.show.episodeMinutes ? ' · ' + a.show.episodeMinutes + ' min' : '') + '</p>' +
           '</div>' +
           '<button class="check-btn" data-action="check-episode" data-show="' + a.show.id + '" aria-label="Mark episode ' + a.info.number + ' of ' + a.show.title + ' watched">' + icon('check') + '</button>' +
