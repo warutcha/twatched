@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.20.0';
+  var APP_VERSION = 'v2.21.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -333,6 +333,30 @@
     if(!s.type) s.type = 'show';
     if(!s.related) s.related = [];
     if(s.seasonLabel === undefined) s.seasonLabel = '';
+    rate10(s);
+  }
+  /* ---------------- Ratings out of 10 (v2.21) ----------------
+     Ratings used to be 1–5 stars. Every show is converted once: each episode rating, the series score and
+     a movie's rating are doubled, and the show gets r10:1 so it is never doubled again. This runs whenever
+     shows are loaded or arrive from sync, so data from any device or backup ends up the same. */
+  function rate10(s){
+    if(!s || s.r10) return;
+    var m = s.epRatings;
+    if(m) Object.keys(m).forEach(function(k){ var x = m[k]; if(x && typeof x.r === 'number' && x.r > 0) x.r = Math.min(10, x.r * 2); });
+    if(typeof s.seriesRating === 'number' && s.seriesRating > 0) s.seriesRating = Math.min(10, s.seriesRating * 2);
+    if(typeof s.rating === 'number' && s.rating > 0) s.rating = Math.min(10, s.rating * 2);
+    s.r10 = 1;
+  }
+  function fmt10(v){ return (Math.round(v * 10) / 10) + '/10'; }
+  // ten stars for showing a score (series page, movie page); tappable when action is given
+  function stars10Html(v, action, showId){
+    var h = ''; for(var i = 1; i <= 10; i++) h += '<span class="' + (i <= Math.round(v) ? 'on' : '') + '"' + (action ? ' data-action="' + action + '"' + (showId ? ' data-show="' + showId + '"' : '') + ' data-value="' + i + '"' : '') + '>★</span>';
+    return '<div class="stars10">' + h + (v ? '<b class="stars10__v">' + fmt10(v) + '</b>' : '') + '</div>';
+  }
+  // number buttons 1–10 for giving a score
+  function numPickHtml(v, action){
+    var h = ''; for(var i = 1; i <= 10; i++) h += '<button type="button" class="' + (i === v ? 'on' : i < v ? 'lo' : '') + '" data-action="' + action + '" data-value="' + i + '" aria-pressed="' + (i === v) + '">' + i + '</button>';
+    return '<div class="num-pick">' + h + '</div>';
   }
   /* ---------------- local storage ----------------
      The app's data (with all poster/cast photos) has outgrown localStorage's ~5 MB cap on iPhone, which
@@ -1080,13 +1104,13 @@
     Promise.all([wrap ? stShareImages() : stShowImage(), stShareFonts()]).then(function(r){
       if(token !== stShare.busy || !stShare.open) return;
       var cv = document.getElementById('stShareCv'); if(!cv) return;
-      if(wrap) stShareRender(cv.getContext('2d'), r[0]); else stShareRenderShow(cv.getContext('2d'), r[0]);
+      if(wrap) stShareRender(cv.getContext('2d'), r[0]); else if(stShare.mode === 'show' && stShare.view === 'review') stShareRenderReview(cv.getContext('2d'), r[0]); else stShareRenderShow(cv.getContext('2d'), r[0]);
       // Made ahead of time so that tapping Share… opens the share sheet straight away
       // (iPhone only allows it right after a tap, with no waiting in between).
       cv.toBlob(function(b){
         if(token !== stShare.busy || !b) return;
         var sh = wrap ? null : getShow(stShare.showId), slug = function(t){ return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); };
-        var name = wrap ? slug(stStory.lab) + '-wrap' : (slug(sh && sh.title) || 'show') + (stShare.mode === 'ep' ? '-ep' + stShare.ep : '');
+        var name = wrap ? slug(stStory.lab) + '-wrap' : (slug(sh && sh.title) || 'show') + (stShare.mode === 'ep' ? '-ep' + stShare.ep : stShare.view === 'review' ? '-review' : '');
         try { stShare.file = new File([b], 'twatched-' + name + '.png', { type:'image/png' }); } catch(e){ stShare.file = b; }
         var bt = document.querySelector('#stShare [data-action="share-go"]'); if(bt) bt.disabled = false;
         stShareMsg('');
@@ -1191,19 +1215,22 @@
      Same sheet and same "made ahead, handed to the share sheet on tap" flow as the wrap.
      The picture is look A: the poster on a soft blur of itself. Nothing is saved to the app's data. */
   var ST_DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  function stShareOpenShow(showId, ep, draft){
+  function stShareOpenShow(showId, ep, draft, keep){
     var show = getShow(showId); if(!show) return;
     stEnsureLayer();
+    if(!keep || !stShare.rv || stShare.rv.showId !== showId) stRvReset(show);
+    var review = !ep && stShare.view === 'review';
     stShare.mode = ep ? 'ep' : 'show'; stShare.showId = showId; stShare.ep = ep || 0; stShare.draft = draft || null;
     var canStop = !ep && isDropped(show); stShare.opt.drop = canStop;   // v2.20: on by default for a dropped series
-    stShare.open = true; stShare.file = null; stShare.img = null;
+    stShare.open = true; stShare.file = null; if(!keep) stShare.img = null;
     document.documentElement.classList.add('st-share-open');
     var host = document.getElementById('stShare');
     host.innerHTML = '<div class="st-grab"></div><div class="st-share-head"><h4>Share to your story</h4><button type="button" class="st-share-x" data-action="share-close" aria-label="Close">' + icon('close') + '</button></div>' +
       '<p class="st-share-sub">' + (ep ? 'Episode ' + ep + ' · ' : '') + stEsc(show.title) + '</p>' +
+      (ep ? '' : '<div class="st-share-styles st-share-views">' + [['story','Story'],['review','Review']].map(function(v){ return '<button type="button" class="' + ((review ? 'review' : 'story') === v[0] ? 'on' : '') + '" data-action="share-view" data-value="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>') +
       '<div class="st-share-pv"><canvas id="stShareCv" width="1080" height="1920"></canvas></div>' +
-      '<div class="st-share-opts">' + [['rating','Rating'],['feel','Feelings'],['prog','Progress &amp; time']].concat(canStop ? [['drop','Show that I stopped watching']] : []).map(function(o){
-        return '<button type="button" class="st-share-toggle' + (stShare.opt[o[0]] ? ' on' : '') + '" data-action="share-opt" data-value="' + o[0] + '" aria-pressed="' + stShare.opt[o[0]] + '"><span class="sw"><i></i></span>' + o[1] + '</button>'; }).join('') + '</div>' +
+      (review ? stRvFieldsHtml(show) : '<div class="st-share-opts">' + [['rating','Rating'],['feel','Feelings'],['prog','Progress &amp; time']].concat(canStop ? [['drop','Show that I stopped watching']] : []).map(function(o){
+        return '<button type="button" class="st-share-toggle' + (stShare.opt[o[0]] ? ' on' : '') + '" data-action="share-opt" data-value="' + o[0] + '" aria-pressed="' + stShare.opt[o[0]] + '"><span class="sw"><i></i></span>' + o[1] + '</button>'; }).join('') + '</div>') +
       '<div class="st-share-actions"><button type="button" data-action="share-save">Save image</button><button type="button" class="primary" data-action="share-go">Share…</button></div>' +
       '<p class="st-share-msg" id="stShareMsg"></p>';
     host.classList.add('on'); document.getElementById('stShareScrim').classList.add('on');
@@ -1241,9 +1268,9 @@
   }
   function stSpaced(ctx, px){ if(ctx.letterSpacing !== undefined) ctx.letterSpacing = px + 'px'; }
   function stStars(ctx, v, cx, y, sz, align){
-    var gap = sz*0.14, w = 5*sz + 4*gap, x = align === 'left' ? cx : cx - w/2;
+    var gap = sz*0.14, w = 10*sz + 9*gap, x = align === 'left' ? cx : cx - w/2;
     ctx.save(); ctx.font = sz + 'px Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-    for(var i = 0; i < 5; i++){ var sx = x + i*(sz+gap); ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillText('★', sx, y);
+    for(var i = 0; i < 10; i++){ var sx = x + i*(sz+gap); ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillText('★', sx, y);
       var f = Math.max(0, Math.min(1, v - i)), part = f >= .75 ? 1 : f >= .25 ? .5 : 0;
       if(part){ ctx.save(); ctx.beginPath(); ctx.rect(sx, y - sz, sz*part, sz*2); ctx.clip(); ctx.fillStyle = '#F2B544'; ctx.fillText('★', sx, y); ctx.restore(); } }
     ctx.restore(); return w;
@@ -1286,9 +1313,9 @@
     var score = ep ? (er.r || 0) : movie ? (show.rating || 0) : (show.seriesRating || epAverage(show));
     if(o.rating && score){
       y += 78;
-      if(ep) stStars(ctx, score, 540, y, 58);
-      else { var txt = movie || show.seriesRating ? Math.round(score) + '.0' : score.toFixed(1), w = stStars(ctx, score, 490, y, 58);
-        ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = '600 50px Fraunces, Georgia, serif'; ctx.fillText(txt, 490 + w/2 + 22, y + 18); ctx.textAlign = 'center'; }
+      var txt = fmt10(score); ctx.font = '600 50px Fraunces, Georgia, serif'; var tw = ctx.measureText(txt).width, sw = 10*44 + 9*44*0.14, x0 = 540 - (sw + 24 + tw)/2;
+      stStars(ctx, score, x0, y, 44, 'left');
+      ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.fillText(txt, x0 + sw + 24, y + 18); ctx.textAlign = 'center';
       y += 10;
     }
     var feels = ep ? (er.e || []) : (movie ? [] : feelingCounts(show).slice(0,3).map(function(c){ return c[0] + ' ×' + c[1]; }));
@@ -1335,6 +1362,91 @@
       if(why){ y += 64; ctx.font = '800 28px Manrope, sans-serif'; stRR(ctx, 540 - pw/2, y - 38, pw, 54, 27); ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(why, 540, y); }
     }
     return y;
+  }
+  /* ---- v2.21: the "Review" style for a series or movie — poster, title, a big empty panel for the text you
+     write in Instagram, and your score at the bottom. The 2nd picture lives only in this sheet. ---- */
+  var ST_PLAT = { 'Netflix':['#000000','#E50914'], 'Disney+':['#0B2A7A','#FFFFFF'], 'Prime Video':['#1A98FF','#FFFFFF'], 'HBO Max':['#000000','#FFFFFF'], 'Max':['#000000','#FFFFFF'], 'VIU':['#F6C600','#000000'], 'Viu':['#F6C600','#000000'], 'iQIYI':['#00CC36','#FFFFFF'], 'WeTV':['#FF6A00','#FFFFFF'], 'YouTube':['#FF0000','#FFFFFF'], 'Apple TV+':['#000000','#FFFFFF'], 'TrueID':['#E4002B','#FFFFFF'], 'TVING':['#FF153C','#FFFFFF'], 'Coupang Play':['#1A1A1A','#FFFFFF'] };
+  function stRvDefaultScore(show){
+    if(show.type === 'movie') return show.rating ? show.rating + '/10' : '';
+    if(show.seriesRating) return show.seriesRating + '/10';
+    var a = epAverage(show); return a ? fmt10(a) : '';
+  }
+  function stRvYear(show){ var y = show.type === 'movie' ? show.releaseYear : (show.firstAirDate || '').slice(0, 4); return y ? String(y) : ''; }
+  function stRvReset(show){ stShare.rv = { showId:show.id, score:stRvDefaultScore(show), line:'', plat:true, light:false, pic2:null }; }
+  function stRvFieldsHtml(show){
+    var rv = stShare.rv;
+    return '<div class="st-rv">' +
+      '<label class="st-rv-l" for="stRvScore">Score</label><input type="text" id="stRvScore" class="st-rv-in" value="' + stEsc(rv.score) + '" placeholder="e.g. 8/10" maxlength="24" autocomplete="off">' +
+      '<p class="st-rv-hint">From your rating. Type anything, e.g. 8.5/10 or ∞/10. Empty = no score.</p>' +
+      '<label class="st-rv-l" for="stRvLine">One-liner <span>(optional)</span></label><input type="text" id="stRvLine" class="st-rv-in" value="' + stEsc(rv.line) + '" placeholder="e.g. ยอมรับตรงๆเลย" maxlength="60" autocomplete="off">' +
+      '<div class="st-share-opts st-rv-opts">' +
+        (show.platform ? '<button type="button" class="st-share-toggle' + (rv.plat ? ' on' : '') + '" data-action="share-rv-opt" data-value="plat" aria-pressed="' + rv.plat + '"><span class="sw"><i></i></span>Platform tag (' + stEsc(show.platform) + ')</button>' : '') +
+        '<button type="button" class="st-share-toggle' + (rv.light ? ' on' : '') + '" data-action="share-rv-opt" data-value="light" aria-pressed="' + rv.light + '"><span class="sw"><i></i></span>Light background</button>' +
+      '</div>' +
+      (rv.pic2 ? '<div class="st-rv-pic"><span>2nd picture added</span><button type="button" data-action="share-rv-pic-x">Remove</button></div>'
+               : '<label class="st-rv-add">＋ Add a 2nd picture from Photos<input type="file" id="stRvPic" accept="image/*" hidden></label>') +
+    '</div>';
+  }
+  var stRvTimer = null;
+  document.addEventListener('input', function(e){
+    if(!stShare.open || !stShare.rv || (e.target.id !== 'stRvScore' && e.target.id !== 'stRvLine')) return;
+    stShare.rv[e.target.id === 'stRvScore' ? 'score' : 'line'] = e.target.value;
+    stShare.file = null; var b = document.querySelector('#stShare [data-action="share-go"]'); if(b) b.disabled = true;
+    clearTimeout(stRvTimer); stRvTimer = setTimeout(stShareDraw, 350);
+  });
+  document.addEventListener('change', function(e){
+    if(e.target.id !== 'stRvPic' || !e.target.files || !e.target.files[0] || !stShare.rv) return;
+    var fr = new FileReader();
+    fr.onload = function(){ var im = new Image(); im.onload = function(){ if(!stShare.open) return; stShare.rv.pic2 = im; stShareOpenShow(stShare.showId, 0, null, true); }; im.src = fr.result; };
+    fr.readAsDataURL(e.target.files[0]);
+  });
+  // is the poster light overall? (decides dark or light text when "Light background" is off)
+  function stRvIsLight(im){
+    if(!im) return false;
+    try { var c = document.createElement('canvas'); c.width = 12; c.height = 18; var x = c.getContext('2d'); x.drawImage(im, 0, 0, 12, 18);
+      var d = x.getImageData(0, 0, 12, 18).data, s = 0; for(var i = 0; i < d.length; i += 4) s += (0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2]) / 255;
+      return s / (d.length / 4) > 0.6; } catch(e){ return false; }
+  }
+  function stRvImage(ctx, im, x, y, w, h, r){
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 36; ctx.shadowOffsetY = 14; stRR(ctx, x, y, w, h, r); ctx.fillStyle = '#222'; ctx.fill(); ctx.shadowColor = 'transparent';
+    stRR(ctx, x, y, w, h, r); ctx.clip();
+    var k = Math.max(w/im.width, h/im.height), dw = im.width*k, dh = im.height*k; ctx.drawImage(im, x + (w-dw)/2, y + (h-dh)/2, dw, dh); ctx.restore();
+  }
+  function stShareRenderReview(ctx, im){
+    var show = getShow(stShare.showId); if(!show) return;
+    var rv = stShare.rv, pic2 = rv.pic2;
+    ctx.clearRect(0,0,1080,1920); ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#141414'; ctx.fillRect(0,0,1080,1920);
+    if(im) stBlurBackdrop(ctx, im);
+    else { var g0 = GRADIENTS[(show.posterIndex||0) % GRADIENTS.length], bg = ctx.createLinearGradient(0,0,1080,1920); bg.addColorStop(0,g0[0]); bg.addColorStop(1,g0[1]); ctx.fillStyle = bg; ctx.fillRect(0,0,1080,1920); }
+    var light = rv.light || stRvIsLight(im), fg = light ? '#161616' : '#FFFFFF';
+    ctx.fillStyle = light ? 'rgba(255,255,255,.42)' : 'rgba(0,0,0,.40)'; ctx.fillRect(0,0,1080,1920);
+    // pictures, centred, starting at the top of Instagram's safe area (y 250)
+    var H = pic2 ? 470 : 520, w1 = Math.round(H * 2/3), w2 = pic2 ? Math.round(H * Math.max(.55, Math.min(1.2, pic2.width / pic2.height))) : 0, gap = 30;
+    if(w1 + (pic2 ? gap + w2 : 0) > 940){ var k = 940 / (w1 + gap + w2); H = Math.round(H*k); w1 = Math.round(w1*k); w2 = Math.round(w2*k); }
+    var x0 = 540 - (w1 + (pic2 ? gap + w2 : 0)) / 2, top = 250;
+    stCropPoster(ctx, show, im, x0, top, w1, H, 18);
+    if(pic2) stRvImage(ctx, pic2, x0 + w1 + gap, top, w2, H, 18);
+    if(rv.plat && show.platform){
+      var col = ST_PLAT[show.platform] || ['#111111','#FFFFFF'], t = show.platform; ctx.font = '800 30px Manrope, sans-serif'; var tw = ctx.measureText(t).width + 36;
+      ctx.save(); ctx.translate(x0 + w1 + (pic2 ? gap + w2 : 0) - tw/2 + 14, top + H - 8); ctx.rotate(-6 * Math.PI / 180);
+      ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4; stRR(ctx, -tw/2, -27, tw, 54, 10); ctx.fillStyle = col[0]; ctx.fill(); ctx.shadowColor = 'transparent';
+      ctx.fillStyle = col[1]; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 0, 2); ctx.restore(); ctx.textBaseline = 'alphabetic';
+    }
+    // "Title, Year"
+    var yr = stRvYear(show), title = show.title + (yr ? ', ' + yr : ''), ty = top + H + 104;
+    ctx.fillStyle = fg; ctx.textAlign = 'center'; stFitFont(ctx, title, 960, 64, '800', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, title, 960), 540, ty);
+    // score and one-liner at the bottom of the safe area (y 1580)
+    var score = (rv.score || '').trim(), line = (rv.line || '').trim(), sy = 0, ly = 0;
+    if(score && line){ sy = 1478; ly = 1550; } else if(score){ sy = 1545; } else if(line){ ly = 1545; }
+    if(score){ stFitFont(ctx, score, 900, 112, '800', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, score, 900), 540, sy); }
+    if(line){ stFitFont(ctx, line, 940, 46, '800', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, line, 940), 540, ly); }
+    // the empty frosted panel for your text
+    var pt = ty + 46, pb = score ? sy - 118 : line ? ly - 76 : 1560;
+    if(pb - pt > 160){
+      stRR(ctx, 60, pt, 960, pb - pt, 52); ctx.fillStyle = light ? 'rgba(255,255,255,.34)' : 'rgba(0,0,0,.30)'; ctx.fill();
+      ctx.strokeStyle = light ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.14)'; ctx.lineWidth = 2; ctx.stroke();
+    }
   }
   function stShareGo(){
     var f = stShare.file; if(!f) return;
@@ -1705,7 +1817,7 @@
   function renderMovieDetailContent(movie, opts){
     opts = opts || {};
     var deleteConfirming = state.confirmDeleteId === movie.id;
-    var stars = [1,2,3,4,5].map(function(n){ return '<span class="' + ((movie.rating||0)>=n?'on':'') + '">★</span>'; }).join('');
+    var stars = stars10Html(movie.rating || 0);
     return (opts.showBack ? '<button class="icon-btn back-btn" data-action="close-detail">' + icon('back') + ' Back</button>' : '') +
       '<div class="detail-hero" style="' + (movie.posterImage ? '' : posterStyle(movie)) + '">' +
         posterImgTag(movie,'banner') +
@@ -1727,7 +1839,7 @@
         var ce = castEntry(c);
         return '<span class="chip cast-chip">' + (ce.photo ? '<span class="cast-chip-photo">' + castImgTag(ce) + '</span>' : '<span class="cast-chip-init">'+(ce.name.trim().charAt(0).toUpperCase()||'?')+'</span>') + ce.name + '</span>';
       }).join('') + '</div>' : '') +
-      '<div class="star-pick" style="margin:6px 0 0;">' + stars + '</div>' +
+      '<div style="margin:8px 0 0;max-width:340px">' + stars + '</div>' +
       relatedSectionHtml(movie);
   }
 
@@ -1754,22 +1866,20 @@
   function miniRatingHtml(show, ep){
     var r = epRating(show, ep);
     if(!r) return '';
-    var s = (r.r ? '<span class="ep-mini-stars">' + '★'.repeat(r.r) + '</span>' : '') +
+    var s = (r.r ? '<span class="ep-mini-score">★ ' + r.r + '</span>' : '') +
             ((r.e||[]).length ? '<span class="ep-mini-feel">' + r.e.map(feelingShort).join(' ') + '</span>' : '');
     return s ? '<span class="ep-row__rating">' + s + '</span>' : '';
   }
   function seriesScoreBoxHtml(show){
     var avg = epAverage(show);
     var own = show.seriesRating || 0;
-    var shown = own || Math.round(avg);
     var counts = feelingCounts(show);
-    var summary = (own ? '<span class="g">★</span> ' + own + '.0' : (avg ? '<span class="g">★</span> ' + avg.toFixed(1) : 'Not rated yet')) +
+    var summary = (own ? '<span class="g">★</span> ' + own + '/10' : (avg ? '<span class="g">★</span> ' + fmt10(avg) : 'Not rated yet')) +
       (counts.length ? ' · ' + feelingShort(counts[0][0]) + ' ×' + counts[0][1] : '');
-    var stars = ''; for(var i=1;i<=5;i++) stars += '<span class="' + (i<=shown?'on':'') + '" data-action="set-series-rating" data-show="' + show.id + '" data-value="' + i + '">★</span>';
     var bars = ''; var every = show.totalEpisodes > 16 ? 5 : 1;
     for(var e=1;e<=show.totalEpisodes;e++){
       var rr = epRating(show, e); var v = rr && rr.r ? rr.r : 0;
-      bars += '<div class="' + (v?'has':'') + '" style="height:' + (v ? v*20 : 7) + '%">' + ((e===1 || e%every===0) ? '<small>' + e + '</small>' : '') + '</div>';
+      bars += '<div class="' + (v?'has':'') + '" style="height:' + (v ? v*10 : 7) + '%">' + ((e===1 || e%every===0) ? '<small>' + e + '</small>' : '') + '</div>';
     }
     var mx = counts.length ? counts[0][1] : 1;
     var feel = counts.length ? counts.map(function(c){
@@ -1778,8 +1888,8 @@
     return '<div class="score-box' + (state.scoreBoxOpen ? ' open' : '') + '">' +
       '<button type="button" class="score-head" data-action="toggle-score-box"><span class="lbl">Your series score</span><span class="sum">' + summary + '</span><span class="chev">' + icon('down') + '</span></button>' +
       (state.scoreBoxOpen ? '<div class="score-inner">' +
-        '<p class="score-sub">Overall</p><div class="star-pick">' + stars + '</div>' +
-        '<p class="score-note">' + (avg ? 'Episode average ' + avg.toFixed(1) + ' ★ · ' : '') + (own ? 'your own score. Tap the same star again to go back to the average.' : 'tap a star to set your own score') + '</p>' +
+        '<p class="score-sub">Overall</p>' + stars10Html(own || avg, 'set-series-rating', show.id) +
+        '<p class="score-note">' + (avg ? 'Episode average ' + fmt10(avg) + ' · ' : '') + (own ? 'your own score. Tap the same star again to go back to the average.' : 'tap a star to set your own score') + '</p>' +
         '<p class="score-sub">Each episode</p><div class="score-graph">' + bars + '</div>' +
         '<p class="score-sub">Feelings so far</p><div class="feel-bars">' + feel + '</div>' +
       '</div>' : '') +
@@ -1794,7 +1904,7 @@
   }
   function rateSheetInner(){
     var rs = state.rateSheet; var show = rs && getShow(rs.showId); if(!show) return '';
-    var stars = ''; for(var i=1;i<=5;i++) stars += '<span class="' + (i<=rs.r?'on':'') + '" data-action="rate-star" data-value="' + i + '">★</span>';
+
     var feels = state.feelingOptions.map(function(opt){
       var p = feelingParts(opt); var on = rs.e.indexOf(opt) !== -1;
       return '<button type="button" class="feel' + (on?' on':'') + '" data-action="rate-feel" data-value="' + opt.replace(/"/g,'&quot;') + '">' + (p.emoji ? '<b>' + p.emoji + '</b>' : '') + '<span>' + (p.label || '&nbsp;') + '</span></button>';
@@ -1804,7 +1914,7 @@
       '<div class="rate-top"><div class="rate-thumb" style="' + (show.posterImage ? '' : posterStyle(show)) + '">' + posterImgTag(show,'thumbnail') + '</div>' +
         '<div class="rate-top__text"><h3>Episode ' + rs.ep + (rs.isNew ? ' watched ✓' : '') + '</h3><p>' + show.title + (rs.isNew ? ' · both optional' : ' · edit your rating') + '</p></div>' +
         '<button type="button" class="rate-share" data-action="share-rate">' + icon('share') + 'Share</button></div>' +
-      '<div class="star-pick rate-stars">' + stars + '</div>' +
+      numPickHtml(rs.r, 'rate-star') +
       '<p class="score-sub" style="margin-top:14px;">How did it make you feel?</p>' +
       '<div class="feel-grid">' + feels + '</div>' +
       '<button type="button" class="link-btn" data-action="toggle-manage-list" data-list="feeling">' + (managing ? 'Done' : 'Edit feelings list') + '</button>' +
@@ -2071,9 +2181,7 @@
     }
 
     if(state.formKind === 'movie'){
-      var stars = '<div class="star-pick">' + [1,2,3,4,5].map(function(n){
-        return '<span class="' + (d.rating>=n?'on':'') + '" data-action="set-movie-rating" data-value="' + n + '">★</span>';
-      }).join('') + '</div>';
+      var stars = numPickHtml(d.rating || 0, 'set-movie-rating');
       return '<div class="screen-pad">' +
         '<div class="form-head"><h2>' + (isEdit ? 'Edit movie' : 'Add movie') + '</h2><button type="button" data-action="cancel-form">Cancel</button></div>' +
         '<form id="showForm">' +
@@ -2852,7 +2960,7 @@
         if(s.watched > s.totalEpisodes) s.watched = s.totalEpisodes;
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), type:'show', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), seasonLabel:(d.seasonLabel||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category: d.category || '', folderIds: d.folderIds.slice(), totalEpisodes:total,
+      state.shows.push({ id:'s'+Date.now(), r10:1, type:'show', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), seasonLabel:(d.seasonLabel||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category: d.category || '', folderIds: d.folderIds.slice(), totalEpisodes:total,
         airDays: d.airDays.length ? d.airDays : [0], airTime:d.airTime, airTimeZone: d.airTimeZone || 'TH', airTimeOriginal: d.airTimeOriginal || d.airTime, firstAirDate:d.firstAirDate,
         channel:d.channel, platform:d.platform, posterIndex:d.posterIndex,
         posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
@@ -2868,7 +2976,7 @@
     if(!d.title || !d.title.trim()) return;
     var year = parseInt(d.releaseYear,10) || null;
     var runtime = parseInt(d.runtimeMinutes,10) || null;
-    var rating = Math.max(0, Math.min(5, parseInt(d.rating,10) || 0));
+    var rating = Math.max(0, Math.min(10, parseInt(d.rating,10) || 0));
     if(d.id){
       var s = getShow(d.id);
       if(s){
@@ -2877,7 +2985,7 @@
         s.posterIndex = d.posterIndex; s.posterImage = d.posterImage || null; s.posterCrops = d.posterCrops || defaultCrops();
       }
     } else {
-      state.shows.push({ id:'s'+Date.now(), type:'movie', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), seasonLabel:(d.seasonLabel||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category:'movie',
+      state.shows.push({ id:'s'+Date.now(), r10:1, type:'movie', title:d.title.trim(), originalTitle:(d.originalTitle||'').trim(), seasonLabel:(d.seasonLabel||'').trim(), genres:d.genres, cast:d.cast, nationality: d.nationality || '', category:'movie',
         releaseYear: year, runtimeMinutes: runtime, watchedDate: d.watchedDate || isoDateOffset(0), rating: rating, platform: d.platform,
         posterIndex: d.posterIndex, posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
         related: d.related ? d.related.slice() : [] });
@@ -2961,7 +3069,7 @@
           if(!s.epRatings) s.epRatings = {};
           if(rs.r || rs.e.length) s.epRatings[String(rs.ep)] = { r: rs.r, e: rs.e.slice() };
           else delete s.epRatings[String(rs.ep)];
-          var msg = rs.isNew ? 'Episode ' + rs.ep + ' marked watched' + (rs.r || rs.e.length ? ' · ' + (rs.r ? '★'.repeat(rs.r) + ' ' : '') + rs.e.map(feelingShort).join(' ') : '') : 'Rating saved';
+          var msg = rs.isNew ? 'Episode ' + rs.ep + ' marked watched' + (rs.r || rs.e.length ? ' · ' + (rs.r ? '★ ' + rs.r + '/10 ' : '') + rs.e.map(feelingShort).join(' ') : '') : 'Rating saved';
           state.rateSheet = null; if(state.managingList === 'feeling') state.managingList = null;
           touch(); render(); showToast(msg);
         })(); break;
@@ -3076,6 +3184,12 @@
       case 'share-rate':
         // shares what's on the sheet right now, even before Save
         if(state.rateSheet) stShareOpenShow(state.rateSheet.showId, state.rateSheet.ep, { r: state.rateSheet.r, e: state.rateSheet.e.slice() }); break;
+      case 'share-view':
+        stShare.view = btn.getAttribute('data-value') === 'review' ? 'review' : 'story'; stShareOpenShow(stShare.showId, 0, null, true); break;
+      case 'share-rv-opt':
+        (function(){ var k = btn.getAttribute('data-value'); stShare.rv[k] = !stShare.rv[k]; btn.classList.toggle('on', stShare.rv[k]); btn.setAttribute('aria-pressed', String(stShare.rv[k])); stShareDraw(); })(); break;
+      case 'share-rv-pic-x':
+        stShare.rv.pic2 = null; stShareOpenShow(stShare.showId, 0, null, true); break;
       case 'share-opt':
         (function(){ var k = btn.getAttribute('data-value'); stShare.opt[k] = !stShare.opt[k]; btn.classList.toggle('on', stShare.opt[k]); btn.setAttribute('aria-pressed', String(stShare.opt[k])); stShareDraw(); })(); break;
       case 'share-style':
