@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.21.0';
+  var APP_VERSION = 'v2.21.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1421,10 +1421,10 @@
     else { var g0 = GRADIENTS[(show.posterIndex||0) % GRADIENTS.length], bg = ctx.createLinearGradient(0,0,1080,1920); bg.addColorStop(0,g0[0]); bg.addColorStop(1,g0[1]); ctx.fillStyle = bg; ctx.fillRect(0,0,1080,1920); }
     var light = rv.light || stRvIsLight(im), fg = light ? '#161616' : '#FFFFFF';
     ctx.fillStyle = light ? 'rgba(255,255,255,.42)' : 'rgba(0,0,0,.40)'; ctx.fillRect(0,0,1080,1920);
-    // pictures, centred, starting at the top of Instagram's safe area (y 250)
+    // pictures, centred, starting just under Instagram's account name (y 150)
     var H = pic2 ? 470 : 520, w1 = Math.round(H * 2/3), w2 = pic2 ? Math.round(H * Math.max(.55, Math.min(1.2, pic2.width / pic2.height))) : 0, gap = 30;
     if(w1 + (pic2 ? gap + w2 : 0) > 940){ var k = 940 / (w1 + gap + w2); H = Math.round(H*k); w1 = Math.round(w1*k); w2 = Math.round(w2*k); }
-    var x0 = 540 - (w1 + (pic2 ? gap + w2 : 0)) / 2, top = 250;
+    var x0 = 540 - (w1 + (pic2 ? gap + w2 : 0)) / 2, top = 150;
     stCropPoster(ctx, show, im, x0, top, w1, H, 18);
     if(pic2) stRvImage(ctx, pic2, x0 + w1 + gap, top, w2, H, 18);
     if(rv.plat && show.platform){
@@ -1433,19 +1433,20 @@
       ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4; stRR(ctx, -tw/2, -27, tw, 54, 10); ctx.fillStyle = col[0]; ctx.fill(); ctx.shadowColor = 'transparent';
       ctx.fillStyle = col[1]; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 0, 2); ctx.restore(); ctx.textBaseline = 'alphabetic';
     }
-    // "Title, Year"
+    // "Title, Year", then the one-liner under it
     var yr = stRvYear(show), title = show.title + (yr ? ', ' + yr : ''), ty = top + H + 104;
     ctx.fillStyle = fg; ctx.textAlign = 'center'; stFitFont(ctx, title, 960, 64, '800', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, title, 960), 540, ty);
-    // score and one-liner at the bottom of the safe area (y 1580)
-    var score = (rv.score || '').trim(), line = (rv.line || '').trim(), sy = 0, ly = 0;
-    if(score && line){ sy = 1478; ly = 1550; } else if(score){ sy = 1545; } else if(line){ ly = 1545; }
-    if(score){ stFitFont(ctx, score, 900, 112, '800', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, score, 900), 540, sy); }
-    if(line){ stFitFont(ctx, line, 940, 46, '800', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, line, 940), 540, ly); }
-    // the empty frosted panel for your text
-    var pt = ty + 46, pb = score ? sy - 118 : line ? ly - 76 : 1560;
-    if(pb - pt > 160){
-      stRR(ctx, 60, pt, 960, pb - pt, 52); ctx.fillStyle = light ? 'rgba(255,255,255,.34)' : 'rgba(0,0,0,.30)'; ctx.fill();
-      ctx.strokeStyle = light ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.14)'; ctx.lineWidth = 2; ctx.stroke();
+    var score = (rv.score || '').trim(), line = (rv.line || '').trim();
+    if(line){ ctx.fillStyle = light ? 'rgba(22,22,22,.75)' : 'rgba(255,255,255,.85)'; stFitFont(ctx, line, 940, 40, '700', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, line, 940), 540, ty + 58); }
+    // the empty frosted panel for your text, down to the bottom; your score is a tab on its top-right edge
+    var pt = line ? ty + 130 : ty + 84, pb = 1860;
+    stRR(ctx, 60, pt, 960, pb - pt, 52); ctx.fillStyle = light ? 'rgba(255,255,255,.34)' : 'rgba(0,0,0,.30)'; ctx.fill();
+    ctx.strokeStyle = light ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.14)'; ctx.lineWidth = 2; ctx.stroke();
+    if(score){
+      var st = '★ ' + score; stFitFont(ctx, st, 560, 40, '800', 'Manrope, sans-serif'); st = stClip(ctx, st, 560);
+      var tw = ctx.measureText(st).width + 56, tx = 980 - tw;
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.30)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4; stRR(ctx, tx, pt - 34, tw, 68, 34); ctx.fillStyle = '#F2B544'; ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#1d1300'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(st, tx + tw/2, pt + 2); ctx.textBaseline = 'alphabetic';
     }
   }
   function stShareGo(){
