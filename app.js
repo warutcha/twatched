@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.21.1';
+  var APP_VERSION = 'v2.22.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -76,14 +76,11 @@
     return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
   }
   function isoDate(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
-  function computeEpisodeDate(show, episodeNumber){
+  function computeEpisodeDate(show, episodeNumber){ return occurrenceDate(show, epOccurrence(show, episodeNumber)); }
+  // the date of the n-th air day (1 = the day episode 1 airs)
+  function occurrenceDate(show, occurrenceIndex){
     var t = (show.airTime||'20:00').split(':');
     var h = parseInt(t[0],10) || 0, m = parseInt(t[1],10) || 0;
-    var perDrop = show.episodesPerAiring || 1;
-    // Episodes 1..P all come out on the first day (P = "episodes on day 1"; when it isn't set it equals perDrop,
-    // which gives exactly the old result). After that, groups of perDrop on each following air day.
-    var firstDrop = premiereCount(show);
-    var occurrenceIndex = episodeNumber <= firstDrop ? 1 : 1 + Math.ceil((episodeNumber - firstDrop) / perDrop);
     var base = new Date(show.firstAirDate + 'T00:00:00');
     // v2.18: days marked as a break (show.skipDates) don't count; a break on day 1 moves day 1 itself
     var skip = (show.skipDates && show.skipDates.length) ? show.skipDates : null;
@@ -159,7 +156,11 @@
     var freqPrefix = perDrop > 1 ? (perDrop + ' new episodes ') : 'New episodes ';
     var base = freqPrefix + joined + ' at ' + fmtTime(new Date('2000-01-01T'+(show.airTime||'20:00')+':00')) + ' Thai time';
     var firstDrop = premiereCount(show), total = show.totalEpisodes || 0;
-    if(firstDrop !== perDrop && show.firstAirDate){
+    var dcs = dayCountsOf(show);
+    if(dcs && show.firstAirDate){
+      var dsum = dcs.reduce(function(a,v){ return a + v; }, 0);
+      base = 'Episodes by air day: ' + dcs.join(' · ') + (total && dsum >= total ? ' (' + joined + ' at ' + fmtTime(new Date('2000-01-01T'+(show.airTime||'20:00')+':00')) + ' Thai time)' : ', then ' + base.charAt(0).toLowerCase() + base.slice(1));
+    } else if(firstDrop !== perDrop && show.firstAirDate){
       var d1 = computeEpisodeDate(show, 1);
       if(total && firstDrop >= total) base = 'All ' + total + ' episodes on ' + fmtDate(d1) + ' at ' + fmtTime(d1) + ' Thai time';
       else base = firstDrop + ' episode' + (firstDrop === 1 ? '' : 's') + ' on premiere day (' + fmtDate(d1) + '), then ' + base.charAt(0).toLowerCase() + base.slice(1);
@@ -325,7 +326,7 @@
     });
   }
   function orderedFolderItems(folder, items){
-    return autoSortShows(items, Date.now());
+    return dropLast(items);
   }
 
   function migrateShow(s){
@@ -358,6 +359,204 @@
     var h = ''; for(var i = 1; i <= 10; i++) h += '<button type="button" class="' + (i === v ? 'on' : i < v ? 'lo' : '') + '" data-action="' + action + '" data-value="' + i + '" aria-pressed="' + (i === v) + '">' + i + '</button>';
     return '<div class="num-pick">' + h + '</div>';
   }
+  /* ---------------- v2.22: episodes per air day, genres A–Z, sub / dub ----------------
+     show.dayCounts = [2,3,1]: episodes on the 1st, 2nd, 3rd air day; after that episodesPerAiring each air day.
+     (The older premiereEpisodes P works the same as dayCounts [P] and is turned into it when the show is next saved.)
+     show.watchLang = 'sub' | 'dub' (not set = not tracked), show.dubLang = 'Thai' etc. Both sync like any field. */
+  function dayCountsOf(show){
+    var a = show && show.dayCounts; if(!a || !a.length) return null;
+    var out = []; for(var i = 0; i < a.length; i++){ var v = parseInt(a[i], 10); if(!(v > 0)) return null; out.push(v); }
+    return out;
+  }
+  // which air day (1, 2, 3 …) an episode comes out on
+  function epOccurrence(show, n){
+    var per = show.episodesPerAiring || 1, dc = dayCountsOf(show);
+    if(dc){ var acc = 0; for(var i = 0; i < dc.length; i++){ acc += dc[i]; if(n <= acc) return i + 1; } return dc.length + Math.ceil((n - acc) / per); }
+    var first = premiereCount(show);
+    return n <= first ? 1 : 1 + Math.ceil((n - first) / per);
+  }
+  function schedSig(show){ return (show.episodesPerAiring || 1) + '|' + (show.premiereEpisodes || 0) + '|' + (show.dayCounts || []).join(','); }
+  function azSort(a){ return a.slice().sort(function(x, y){ return x.localeCompare(y, undefined, { sensitivity:'base' }) || (x < y ? -1 : x > y ? 1 : 0); }); }
+  function genreSetOf(s){ return genreCategoryId(s.type === 'movie' ? 'movie' : s.category); }
+  function watchLabel(s){ return s.watchLang === 'sub' ? 'Sub' : s.watchLang === 'dub' ? (s.dubLang ? s.dubLang + ' dub' : 'Dubbed') : ''; }
+  var DUB_LANGS = ['Thai','English','Japanese','Chinese','Korean'];
+
+  // draft extras, set whenever the Add / Edit form opens
+  function fxInitDraft(){
+    var d = state.formDraft; if(!d) return; var s = d.id ? getShow(d.id) : null;
+    state.genreEdit = false; state.genreRen = null; state.genreAdding = false; state.dubAdding = false;
+    d.watchLang = (s && s.watchLang) || ''; d.dubLang = (s && s.dubLang) || '';
+    if(d.type === 'movie') return;
+    var dc = s ? dayCountsOf(s) : null, p = s ? parseInt(s.premiereEpisodes, 10) : 0;
+    if(!dc && p > 0 && p !== (s.episodesPerAiring || 1)) dc = [p];
+    d.dayCounts = dc || []; d.dayMode = dc ? 'diff' : 'same'; d.premiereEpisodes = '';
+  }
+  function fxApplyDraft(s, d){
+    if(!s || !d) return;
+    if(d.watchLang === 'sub' || d.watchLang === 'dub') s.watchLang = d.watchLang; else delete s.watchLang;
+    if(d.watchLang === 'dub' && d.dubLang) s.dubLang = d.dubLang; else delete s.dubLang;
+    if(s.type === 'movie') return;
+    var per = s.episodesPerAiring || 1, total = s.totalEpisodes || 1, out = [], acc = 0;
+    if(d.dayMode === 'diff') (d.dayCounts || []).forEach(function(v){ v = parseInt(v, 10); if(v > 0 && acc < total){ out.push(Math.min(99, v)); acc += v; } });
+    if(out.every(function(v){ return v === per; })) out = [];   // nothing different from the normal rule
+    if(out.length){ s.dayCounts = out; delete s.premiereEpisodes; } else delete s.dayCounts;
+  }
+  function fxDraftSched(d){
+    return { firstAirDate:d.firstAirDate, airDays:(d.airDays && d.airDays.length) ? d.airDays : [0], airTime:d.airTime || '20:00',
+      episodesPerAiring:Math.max(1, parseInt(d.episodesPerAiring, 10) || 1), dayCounts: d.dayMode === 'diff' ? d.dayCounts : null, skipDates:d.skipDates || null };
+  }
+  function fxStep(v, action, i, label){
+    return '<span class="fx-step"><button type="button" data-action="' + action + '" data-i="' + i + '" data-d="-1"' + (v <= 1 ? ' disabled' : '') + ' aria-label="Fewer episodes ' + label + '">−</button><b>' + v + '</b>' +
+      '<button type="button" data-action="' + action + '" data-i="' + i + '" data-d="1"' + (v >= 99 ? ' disabled' : '') + ' aria-label="More episodes ' + label + '">+</button></span>';
+  }
+  function fxSeg(items, cur, action){
+    return '<div class="fx-seg">' + items.map(function(it){ var on = cur === it[0]; return '<button type="button" class="' + (on ? 'on' : '') + '" data-action="' + action + '" data-value="' + it[0] + '" aria-pressed="' + on + '">' + it[1] + '</button>'; }).join('') + '</div>';
+  }
+  function fxDaysHtml(d){
+    var diff = d.dayMode === 'diff', per = Math.max(1, parseInt(d.episodesPerAiring, 10) || 1);
+    var h = '<div class="field"><label>Episodes per air day</label>' + fxSeg([['same','Same every day'],['diff','Different per day']], diff ? 'diff' : 'same', 'fx-daymode');
+    if(!diff) return h + '<div class="fx-sub"><label for="f_perdrop">Episodes released together</label><input type="number" id="f_perdrop" data-field="episodesPerAiring" min="1" value="' + per + '"></div></div>';
+    var sh = fxDraftSched(d), total = Math.max(1, parseInt(d.totalEpisodes, 10) || 1), acc = 0, rows = '';
+    var okDate = d.firstAirDate && !isNaN(new Date(d.firstAirDate + 'T00:00:00').getTime());
+    d.dayCounts.forEach(function(v, i){
+      var a = acc + 1, b = Math.min(total, acc + v); acc += v;
+      rows += '<div class="fx-day"><div class="fx-day__t"><b>Day ' + (i + 1) + '</b>' + (okDate ? ' · ' + fmtDate(occurrenceDate(sh, i + 1)) : '') +
+        '<small>' + (a > total ? 'No episodes left' : a === b ? 'Ep ' + a : 'Ep ' + a + '–' + b) + '</small></div>' + fxStep(v, 'fx-day-step', i, 'on day ' + (i + 1)) +
+        (d.dayCounts.length > 1 && i === d.dayCounts.length - 1 ? '<button type="button" class="fx-day__x" data-action="fx-day-del" aria-label="Remove day ' + (i + 1) + '">' + icon('close') + '</button>' : d.dayCounts.length > 1 ? '<span class="fx-day__sp"></span>' : '') + '</div>';
+    });
+    rows += '<button type="button" class="fx-day-add" data-action="fx-day-add"' + (acc >= total ? ' disabled' : '') + '>＋ Add day</button>';
+    return h + '<div class="fx-days">' + rows + '</div>' + (acc < total ? '<div class="fx-after"><span>After that, each air day</span>' + fxStep(per, 'fx-per-step', -1, 'after that') + '</div>' : '') + '</div>';
+  }
+  function fxWatchField(d){
+    var w = d.watchLang || '', h = '<div class="field"><label>Watched in <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>' + fxSeg([['sub','Original · Sub'],['dub','Dubbed']], w, 'fx-watch');
+    if(w === 'dub'){
+      var o = DUB_LANGS.slice(); state.shows.forEach(function(s){ if(s.dubLang && o.indexOf(s.dubLang) === -1) o.push(s.dubLang); }); if(d.dubLang && o.indexOf(d.dubLang) === -1) o.push(d.dubLang);
+      h += '<label class="fx-sublab">Dub language</label><div class="day-chips">' + o.map(function(l){ var on = d.dubLang === l; return '<button type="button" class="opt-chip' + (on ? ' active' : '') + '" data-action="fx-dub" data-value="' + stEsc(l) + '" aria-pressed="' + on + '">' + stEsc(l) + '</button>'; }).join('') +
+        (state.dubAdding ? '<input type="text" class="fx-gin" id="fxDubNew" placeholder="Language" maxlength="24" enterkeyhint="done" autocomplete="off">' : '<button type="button" class="opt-chip fx-gnew" data-action="fx-dub-new" aria-label="Add a language">＋</button>') + '</div>';
+    }
+    return h + (w ? '<p class="crop-hint" style="margin:8px 0 0">Tap the selected one again to clear it.</p>' : '') + '</div>';
+  }
+  // genres: tap to pick; "Edit list" to rename (tap a name) or delete (✕); "＋ New" adds in A–Z order
+  function genrePickerField(d){
+    var cat = getCategory(genreCategoryId(d.category)), list = cat ? cat.genres : [], ed = !!(state.genreEdit && cat);
+    var display = azSort(list.concat(d.genres.filter(function(g){ return list.indexOf(g) === -1; })));
+    var chips = display.map(function(g){
+      var q = stEsc(g), inSet = list.indexOf(g) !== -1;
+      if(ed){
+        if(!inSet) return '';
+        if(state.genreRen === g) return '<input type="text" class="fx-gin" id="fxGenreRen" data-old="' + q + '" value="' + q + '" maxlength="40" enterkeyhint="done" autocomplete="off">';
+        return '<span class="opt-chip fx-ged"><button type="button" data-action="fx-genre-ren" data-value="' + q + '" aria-label="Rename ' + q + '">' + q + '</button><button type="button" class="fx-ged__x" data-action="fx-genre-del" data-value="' + q + '" aria-label="Delete ' + q + '">' + icon('close') + '</button></span>';
+      }
+      var on = d.genres.indexOf(g) !== -1;
+      return '<button type="button" class="opt-chip' + (on ? ' active' : '') + '" data-action="toggle-genre" data-value="' + q + '" aria-pressed="' + on + '">' + q + '</button>';
+    }).join('');
+    var add = !cat ? '' : state.genreAdding ? '<input type="text" class="fx-gin" id="fxGenreNew" placeholder="New genre" maxlength="40" enterkeyhint="done" autocomplete="off">' : '<button type="button" class="opt-chip fx-gnew" data-action="fx-genre-new">＋ New</button>';
+    return '<div class="field"><div class="fx-ghead"><label>Genre <span style="font-weight:400;color:var(--text-muted);">(' + (cat ? stEsc(cat.name) : '—') + ' set)</span></label>' +
+      (cat ? '<button type="button" class="link-btn" data-action="fx-genre-edit">' + (ed ? 'Done' : 'Edit list') + '</button>' : '') + '</div>' +
+      ((chips + add) ? '<div class="day-chips">' + chips + add + '</div>' : '<p class="crop-hint" style="margin:0;">Pick a category first.</p>') +
+      (ed ? '<p class="crop-hint" style="margin:8px 0 0">Tap a name to rename it · ✕ to delete it · Done to finish.</p>' : '') + '</div>';
+  }
+  function fxFormCat(){ var d = state.formDraft; return d ? getCategory(genreCategoryId(d.category)) : null; }
+  function fxGenreUse(cat, g){ return state.shows.filter(function(s){ return genreSetOf(s) === cat.id && (s.genres || []).indexOf(g) !== -1; }).length; }
+  function fxGenreAdd(v){
+    if(!state.genreAdding) return; state.genreAdding = false;
+    v = (v || '').trim().replace(/\s+/g, ' '); var d = state.formDraft, cat = fxFormCat(); if(!v || !cat) return;
+    var ex = cat.genres.filter(function(g){ return g.toLowerCase() === v.toLowerCase(); })[0];
+    if(!ex){ cat.genres.push(v); ex = v; }
+    if(!state.genreEdit && d.genres.indexOf(ex) === -1) d.genres.push(ex);
+    touch();
+  }
+  function fxGenreRename(old, v){
+    if(state.genreRen !== old) return; state.genreRen = null;
+    v = (v || '').trim().replace(/\s+/g, ' '); var d = state.formDraft, cat = fxFormCat(); if(!v || !cat || v === old) return;
+    var idx = cat.genres.indexOf(old); if(idx === -1) return;
+    var clash = cat.genres.filter(function(g){ return g !== old && g.toLowerCase() === v.toLowerCase(); })[0], nv = clash || v;
+    if(clash) cat.genres.splice(idx, 1); else cat.genres[idx] = nv;
+    var fix = function(arr){ var i = arr.indexOf(old); if(i === -1) return arr; arr = arr.slice(); arr.splice(i, 1); if(arr.indexOf(nv) === -1) arr.splice(i, 0, nv); return arr; };
+    state.shows.forEach(function(s){ if(s.genres && genreSetOf(s) === cat.id) s.genres = fix(s.genres); });
+    if(d) d.genres = fix(d.genres);
+    touch();
+  }
+  function fxGenreDelete(g){
+    var d = state.formDraft, cat = fxFormCat(); if(!cat) return;
+    cat.genres = cat.genres.filter(function(x){ return x !== g; });
+    state.shows.forEach(function(s){ if(s.genres && genreSetOf(s) === cat.id && s.genres.indexOf(g) !== -1) s.genres = s.genres.filter(function(x){ return x !== g; }); });
+    if(d) d.genres = d.genres.filter(function(x){ return x !== g; });
+    touch();
+  }
+  function fxGenreAskDelete(g){
+    var cat = fxFormCat(); if(!cat) return; var n = fxGenreUse(cat, g);
+    if(!n){ fxGenreDelete(g); render(); return; }
+    stOpenSheet('<h4>Delete “' + stEsc(g) + '”?</h4><p class="drop-sub">' + n + ' title' + (n === 1 ? ' uses' : 's use') + ' it. It will be removed from ' + (n === 1 ? 'it' : 'them') + '.</p>' +
+      '<div class="drop-acts"><button type="button" class="btn btn-ghost" data-action="stats-close-sheet">Cancel</button><button type="button" class="btn drop-btn-stop" data-action="fx-genre-del-ok" data-value="' + stEsc(g) + '">Delete</button></div>');
+  }
+  // the little text boxes (new genre, rename, new dub language): Enter or leaving the box saves, Esc cancels
+  function fxCommit(t, cancel, noRender){
+    var v = cancel ? '' : t.value;
+    if(t.id === 'fxGenreNew'){ if(!state.genreAdding) return; fxGenreAdd(v); }
+    else if(t.id === 'fxGenreRen'){ var old = t.getAttribute('data-old'); if(state.genreRen !== old) return; fxGenreRename(old, v); }
+    else if(t.id === 'fxDubNew'){ if(!state.dubAdding) return; state.dubAdding = false; v = (v || '').trim(); if(v && state.formDraft) state.formDraft.dubLang = v; }
+    else return;
+    if(!noRender) render();
+  }
+  function fxFlush(){ ['fxGenreNew','fxGenreRen','fxDubNew'].forEach(function(id){ var el = document.getElementById(id); if(el) fxCommit(el, false, true); }); }
+  document.addEventListener('keydown', function(e){
+    var t = e.target; if(!t || (t.id !== 'fxGenreNew' && t.id !== 'fxGenreRen' && t.id !== 'fxDubNew')) return;
+    if(e.key === 'Enter'){ e.preventDefault(); fxCommit(t); }
+    else if(e.key === 'Escape'){ e.preventDefault(); fxCommit(t, true); }
+  });
+  document.addEventListener('focusout', function(e){
+    var t = e.target; if(!t || (t.id !== 'fxGenreNew' && t.id !== 'fxGenreRen' && t.id !== 'fxDubNew')) return;
+    setTimeout(function(){ if(document.body.contains(t)) fxCommit(t); }, 0);
+  });
+  // in "Different per day", the day rows follow changes to the episode count and the first air date
+  document.addEventListener('input', function(e){
+    var t = e.target; if(!t.matches || !t.matches('[data-field="totalEpisodes"], [data-field="firstAirDate"]')) return;
+    setTimeout(function(){ var d = state.formDraft, box = document.getElementById('fxDays'); if(d && box && d.dayMode === 'diff') box.innerHTML = fxDaysHtml(d); }, 0);
+  });
+  function fxAction(act, btn){
+    var d = state.formDraft, v = btn.getAttribute('data-value');
+    switch(act){
+      case 'fx-daymode': if(!d) return; d.dayMode = v === 'diff' ? 'diff' : 'same'; if(d.dayMode === 'diff' && !d.dayCounts.length) d.dayCounts = [Math.max(1, parseInt(d.episodesPerAiring, 10) || 1)]; break;
+      case 'fx-day-step': if(!d) return; (function(){ var i = parseInt(btn.getAttribute('data-i'), 10); d.dayCounts[i] = Math.max(1, Math.min(99, (parseInt(d.dayCounts[i], 10) || 1) + parseInt(btn.getAttribute('data-d'), 10))); })(); break;
+      case 'fx-per-step': if(!d) return; d.episodesPerAiring = Math.max(1, Math.min(99, (parseInt(d.episodesPerAiring, 10) || 1) + parseInt(btn.getAttribute('data-d'), 10))); break;
+      case 'fx-day-add': if(!d) return; d.dayCounts.push(Math.max(1, parseInt(d.episodesPerAiring, 10) || 1)); break;
+      case 'fx-day-del': if(!d) return; if(d.dayCounts.length > 1) d.dayCounts.pop(); break;
+      case 'fx-watch': if(!d) return; d.watchLang = d.watchLang === v ? '' : v; state.dubAdding = false; break;
+      case 'fx-dub': if(!d) return; d.dubLang = d.dubLang === v ? '' : v; break;
+      case 'fx-dub-new': state.dubAdding = true; pendingFocusId = 'fxDubNew'; break;
+      case 'fx-genre-edit': fxFlush(); state.genreEdit = !state.genreEdit; state.genreRen = null; state.genreAdding = false; break;
+      case 'fx-genre-new': fxFlush(); state.genreAdding = true; pendingFocusId = 'fxGenreNew'; break;
+      case 'fx-genre-ren': fxFlush(); state.genreRen = v; pendingFocusId = 'fxGenreRen'; break;
+      case 'fx-genre-del': fxFlush(); fxGenreAskDelete(v); return;
+      case 'fx-genre-del-ok': stCloseSheet(); fxGenreDelete(v); break;
+      default: return;
+    }
+    render();
+  }
+  // folders: dropped series go last, most recently dropped first
+  function dropLast(items){
+    var drop = items.filter(isDropped).sort(function(a, b){ return ((b.dropped && b.dropped.at) || 0) - ((a.dropped && a.dropped.at) || 0); });
+    return autoSortShows(items.filter(function(s){ return !isDropped(s); }), Date.now()).concat(drop);
+  }
+  // Stats: how you watched (sub or which dub), by hours
+  function stLangCard(st){
+    var b = {}, order = [], unset = 0, tot = 0, cols = ['var(--st-c1)','var(--st-c2)','var(--st-c3)','var(--st-c4)','var(--st-c5)','var(--st-c6)','var(--st-c7)'];
+    Object.keys(st.titles).forEach(function(id){
+      var t = st.titles[id], s = t.s; if(!t.mins) return;
+      var k = watchLabel(s); if(k === 'Sub') k = 'Original · Sub';
+      if(!k){ unset++; return; }
+      if(!(k in b)){ b[k] = 0; order.push(k); } b[k] += t.mins; tot += t.mins;
+    });
+    if(!tot) return '';
+    order.sort(function(x, y){ return (y === 'Original · Sub') - (x === 'Original · Sub') || b[y] - b[x]; });
+    var col = function(i){ return cols[i % cols.length]; };
+    return '<div class="st-card"><h3>Sub vs Dub</h3><p class="st-sub">Hours watched, by how you watched</p><div class="st-track st-track--big">' +
+      order.map(function(k, i){ return '<span style="flex:' + b[k] + ';background:' + col(i) + '" data-tip="' + stEsc(k + ' · ' + stHm(b[k]) + ' (' + Math.round(b[k]/tot*100) + '%)') + '"></span>'; }).join('') + '</div>' +
+      '<ul class="st-list">' + order.map(function(k, i){ return '<li><span class="st-dot" style="background:' + col(i) + '"></span><div class="st-li-main"><b>' + stEsc(k) + '</b></div><span class="st-li-v">' + stHmS(b[k]) + ' · ' + Math.round(b[k]/tot*100) + '%</span></li>'; }).join('') + '</ul>' +
+      (unset ? '<p class="st-sub" style="margin:8px 0 0">' + unset + ' title' + (unset === 1 ? '' : 's') + ' not set · not counted</p>' : '') + '</div>';
+  }
+
   /* ---------------- local storage ----------------
      The app's data (with all poster/cast photos) has outgrown localStorage's ~5 MB cap on iPhone, which
      made saves fail silently — so each launch started from an old copy until sync re-downloaded the rest.
@@ -829,7 +1028,7 @@
       '<div class="st-kpi"><div class="v">' + st.movies + '</div><div class="l">Movies</div></div>' +
       '<div class="st-kpi"><div class="v">' + st.ranked.length + '</div><div class="l">Titles watched</div></div>' +
       '<div class="st-kpi"><div class="v">' + st.finished.length + '</div><div class="l">Finished</div></div></div>';
-    out += (state.statsMode === 'all' ? stHeatmapCard(st) : stActivityCard(st)) + stKeepCard(st) + stStatusCard(st) + stDropCard() + stTypeCard(st) + stGenreCard(st) + stTopCard(st) + stHabitCard(st);
+    out += (state.statsMode === 'all' ? stHeatmapCard(st) : stActivityCard(st)) + stKeepCard(st) + stStatusCard(st) + stDropCard() + stTypeCard(st) + stGenreCard(st) + stLangCard(st) + stTopCard(st) + stHabitCard(st);
     if(st.noLen) out += '<p class="st-note">' + st.noLen + ' watched item' + (st.noLen > 1 ? 's have' : ' has') + ' no length set, so ' + (st.noLen > 1 ? 'they count' : 'it counts') + ' toward episodes and movies but adds no time.</p>';
     return out + '</div>';
   }
@@ -1833,7 +2032,7 @@
       '<h2 class="detail-title">' + movie.title + '</h2>' +
       (movie.seasonLabel ? '<p class="chip" style="display:inline-block;margin:2px 0 4px;">' + movie.seasonLabel + '</p>' : '') +
       (movie.originalTitle ? '<p class="detail-meta detail-meta--muted" style="margin-top:-2px;">' + movie.originalTitle + '</p>' : '') +
-      '<p class="detail-meta">' + [movie.nationality].concat(movie.genres||[]).filter(Boolean).join(' · ') + '</p>' +
+      '<p class="detail-meta">' + [movie.nationality].concat(movie.genres||[], [watchLabel(movie)]).filter(Boolean).join(' · ') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + [movie.releaseYear, movie.runtimeMinutes ? (movie.runtimeMinutes+' min') : null, movie.platform].filter(Boolean).join(' · ') + '</p>' +
       '<p class="detail-meta detail-meta--muted">Watched ' + (movie.watchedDate ? fmtDate(new Date(movie.watchedDate + 'T00:00:00')) : '—') + '</p>' +
       ((movie.cast||[]).length ? '<div class="chip-row">' + movie.cast.map(function(c){
@@ -1984,7 +2183,7 @@
       '<h2 class="detail-title">' + show.title + '</h2>' +
       (show.seasonLabel ? '<p class="chip" style="display:inline-block;margin:2px 0 4px;">' + show.seasonLabel + '</p>' : '') +
       (show.originalTitle ? '<p class="detail-meta detail-meta--muted" style="margin-top:-2px;">' + show.originalTitle + '</p>' : '') +
-      '<p class="detail-meta">' + [(getCategory(show.category)||{}).name, show.nationality].concat(show.genres||[]).filter(Boolean).join(' · ') + '</p>' +
+      '<p class="detail-meta">' + [(getCategory(show.category)||{}).name, show.nationality].concat(show.genres||[], [watchLabel(show)]).filter(Boolean).join(' · ') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + (show.channel||'—') + ' · ' + (show.platform||'—') + '</p>' +
       '<p class="detail-meta detail-meta--muted">' + scheduleText(show) + '</p>' +
       dropBannerHtml(show) +
@@ -2010,8 +2209,7 @@
   function releasePlanHtml(d){
     var total = Math.max(1, parseInt(d.totalEpisodes,10) || 1);
     if(!d.firstAirDate || isNaN(new Date(d.firstAirDate + 'T00:00:00').getTime())) return '<p class="crop-hint" style="margin:0">Set the date episode 1 airs to see the plan.</p>';
-    var per = Math.max(1, parseInt(d.episodesPerAiring,10) || 1), prem = parseInt(d.premiereEpisodes,10);
-    var sh = { firstAirDate:d.firstAirDate, airDays:(d.airDays && d.airDays.length) ? d.airDays : [0], airTime:d.airTime || '20:00', episodesPerAiring:per, premiereEpisodes: prem > 0 ? prem : '', skipDates:d.skipDates || null };
+    var sh = fxDraftSched(d);
     var groups = [], i, dt, k;
     for(i = 1; i <= Math.min(total, 400); i++){ dt = computeEpisodeDate(sh, i); k = dt.toDateString();
       if(!groups.length || groups[groups.length-1].k !== k) groups.push({ k:k, d:dt, a:i, b:i }); else groups[groups.length-1].b = i; }
@@ -2052,7 +2250,7 @@
       return '<button type="button" class="opt-chip' + (d.category===c.id?' active':'') + '" data-action="set-category" data-value="' + c.id + '">' + c.name + '</button>';
     }).join('');
     return '<div class="field"><label>Category</label><div class="day-chips">' + chips + '</div>' +
-      '<button type="button" class="link-btn" data-action="toggle-manage-categories">' + (state.managingCategories ? 'Done' : 'Manage categories & genres') + '</button>' +
+      '<button type="button" class="link-btn" data-action="toggle-manage-categories">' + (state.managingCategories ? 'Done' : 'Manage categories') + '</button>' +
       (state.managingCategories ? renderManageCategoriesPanel() : '') +
     '</div>';
   }
@@ -2064,34 +2262,12 @@
           '<input type="text" value="' + c.name.replace(/"/g,'&quot;') + '" data-action-input="rename-category" data-cat="' + c.id + '">' +
           '<button type="button" class="mini-danger-btn" data-action="delete-category" data-cat="' + c.id + '" aria-label="Delete ' + c.name.replace(/"/g,'&quot;') + '">' + icon('trash') + '</button>' +
         '</div>' +
-        (c.genres.length ? '<div class="chip-row" style="margin-top:0;">' + c.genres.map(function(g){
-          return '<span class="chip chip-x">' + g + '<button type="button" data-action="remove-genre-from-cat" data-cat="' + c.id + '" data-genre="' + g.replace(/"/g,'&quot;') + '">' + icon('close') + '</button></span>';
-        }).join('') + '</div>' : '<p class="crop-hint" style="margin:0 0 8px;">No genres yet.</p>') +
-        '<input type="text" class="category-add-input" data-action-input="add-genre-to-cat" data-cat="' + c.id + '" placeholder="Add a genre, press Enter">' +
+        '<p class="crop-hint" style="margin:0;">' + c.genres.length + ' genre' + (c.genres.length === 1 ? '' : 's') + ' · edit them with “Edit list” under Genre</p>' +
       '</div>';
     });
     out += '<div class="category-card"><label style="display:block;font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:6px;">NEW CATEGORY</label>' +
       '<input type="text" id="newCategoryInput" class="category-add-input" placeholder="Category name, press Enter"></div>';
     return out;
-  }
-  function genrePickerField(d){
-    var effectiveCatId = genreCategoryId(d.category);
-    var cat = getCategory(effectiveCatId);
-    var list = cat ? cat.genres : [];
-    var display = list.concat(d.genres.filter(function(g){ return list.indexOf(g) === -1; }));
-    var expanded = state.genrePickerExpanded;
-    var selectedChips = d.genres.map(function(g){
-      return '<span class="sel-chip">' + g + '<button type="button" data-action="remove-genre" data-value="' + g.replace(/"/g,'&quot;') + '" aria-label="Remove ' + g.replace(/"/g,'&quot;') + '">' + icon('close') + '</button></span>';
-    }).join('');
-    var allChips = display.map(function(g){
-      var active = d.genres.indexOf(g) !== -1;
-      return '<button type="button" class="opt-chip' + (active?' active':'') + '" data-action="toggle-genre" data-value="' + g.replace(/"/g,'&quot;') + '">' + g + '</button>';
-    }).join('');
-    return '<div class="field"><label>Genre <span style="font-weight:400;color:var(--text-muted);">(' + (cat?cat.name:'—') + ' set)</span></label>' +
-      (d.genres.length ? '<div class="selected-row">' + selectedChips + '</div>' : '<p class="crop-hint" style="margin:0 0 8px;">No genres selected yet.</p>') +
-      '<button type="button" class="link-btn" data-action="toggle-genre-picker">' + (expanded ? 'Done' : 'Edit genres') + '</button>' +
-      (expanded ? '<div class="day-chips" style="margin-top:10px;">' + (allChips || '<span class="crop-hint" style="margin:0;">No genres in this set yet — add some via Manage categories.</span>') + '</div>' : '') +
-    '</div>';
   }
   function folderField(d){
     var chips = state.folders.map(function(f){
@@ -2201,6 +2377,7 @@
             '<div class="field"><label>Watched on</label><input type="date" id="f_watcheddate" data-field="watchedDate" value="' + (d.watchedDate||'') + '"></div>' +
             '<div class="field"><label>Platform</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. Netflix, Theater"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
           '</div>' +
+          fxWatchField(d) +
           '<div class="field"><label>Your rating</label>' + stars + '</div>' +
           ((d.id && state.confirmDeleteId === d.id) ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this movie.</p>' : '') +
           '<div class="form-actions">' +
@@ -2232,10 +2409,7 @@
         '</div>' +
         '<div class="field"><label>Episode length (minutes)</label><input type="number" id="f_epmin" data-field="episodeMinutes" min="1" value="' + (d.episodeMinutes||'') + '" placeholder="e.g. 45"></div>' +
         '<div class="field"><label>Air days</label><div class="day-chips">' + dayChips + '</div></div>' +
-        '<div class="sched-drop"><div class="two-col">' +
-          '<div class="field"><label>Episodes on day 1</label><input type="number" id="f_premiere" data-field="premiereEpisodes" min="1" value="' + (d.premiereEpisodes||'') + '" placeholder="' + (d.episodesPerAiring||1) + '"></div>' +
-          '<div class="field"><label>Episodes released together</label><input type="number" id="f_perdrop" data-field="episodesPerAiring" min="1" value="' + (d.episodesPerAiring||1) + '"></div>' +
-        '</div><p class="crop-hint" style="margin:-4px 0 10px">“Released together”: e.g. 2 episodes every Monday. “Episodes on day 1”: only if the premiere drops a different number (e.g. 4 on day 1, then 2 a week). Leave it empty otherwise.</p>' +
+        '<div class="sched-drop"><div id="fxDays">' + fxDaysHtml(d) + '</div>' +
         '<div class="field"><label>Release plan</label><div class="release-plan" id="f_plan">' + releasePlanHtml(d) + '</div></div></div><!--/sched-drop-->' +
         '<div class="field"><label>Air time (as broadcast)</label><div class="two-col">' +
           '<select id="f_origtz" data-tz-input>' + TZ_OPTIONS.map(function(tz){ return '<option value="' + tz.v + '"' + ((d.airTimeZone||'TH')===tz.v?' selected':'') + '>' + tz.l + '</option>'; }).join('') + '</select>' +
@@ -2245,7 +2419,7 @@
         '<div class="two-col">' +
           '<div class="field"><label>Channel</label><input type="text" id="f_channel" data-field="channel" value="' + (d.channel||'').replace(/"/g,'&quot;') + '" placeholder="e.g. ONE31"></div>' +
           '<div class="field"><label>Platform (where you watch)</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. WeTV"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
-        '</div>' +
+        '</div>' + fxWatchField(d) +
         ((d.id && state.confirmDeleteId === d.id) ? '<p class="screen-kicker" style="color:var(--danger);font-weight:700;margin:-6px 0 12px;">Tap delete again to remove this show.</p>' : '') +
         '<div class="form-actions">' +
           (isEdit ? '<button type="button" class="btn btn-danger' + (state.confirmDeleteId===d.id?' danger-confirm':'') + '" data-action="delete-show-form">Delete</button>' : '') +
@@ -2358,7 +2532,7 @@
   // the times of upcoming episodes, from the same calculation the app uses everywhere
   function pushPlanSig(){
     return JSON.stringify(state.shows.filter(function(s){ return s.type !== 'movie'; }).map(function(s){
-      return [s.id, s.title, s.firstAirDate, s.airDays, s.airTime, s.episodesPerAiring || 1, s.premiereEpisodes || 0, s.totalEpisodes, s.skipDates || [], isDropped(s) ? 1 : 0]; }));
+      return [s.id, s.title, s.firstAirDate, s.airDays, s.airTime, s.episodesPerAiring || 1, s.premiereEpisodes || 0, s.totalEpisodes, s.skipDates || [], isDropped(s) ? 1 : 0, s.dayCounts || []]; }));
   }
   function pushPlanItems(){
     var now = Date.now(), items = [];
@@ -2475,7 +2649,7 @@
   // air times, remembered per schedule (long shows would otherwise recount the calendar on every render)
   var kuAirCache = {};
   function kuAir(show, ep){
-    var sig = show.id + '|' + (show.skipDates || []).join(',') + '|' + show.firstAirDate + '|' + show.airTime + '|' + (show.airDays || []).join(',') + '|' + (show.episodesPerAiring || 1) + '|' + (show.premiereEpisodes || 0);
+    var sig = show.id + '|' + (show.skipDates || []).join(',') + '|' + show.firstAirDate + '|' + show.airTime + '|' + (show.airDays || []).join(',') + '|' + schedSig(show);
     var c = kuAirCache[sig]; if(!c){ c = kuAirCache[sig] = {}; }
     if(!(ep in c)){ var d = computeEpisodeDate(show, ep); c[ep] = stValid(d) ? d.getTime() : null; }
     return c[ep];
@@ -2889,6 +3063,7 @@
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
     state.genrePickerExpanded = false;
+    fxInitDraft();
     openOverlay('form');
   }
   function openAddMovieForm(originTab){
@@ -2899,6 +3074,7 @@
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
     state.genrePickerExpanded = false;
+    fxInitDraft();
     openOverlay('form');
   }
   function openEditForm(showId, origin){
@@ -2927,6 +3103,7 @@
     state.confirmDeleteId = null;
     state.castCropTargetIndex = null;
     state.genrePickerExpanded = false;
+    fxInitDraft();
     openOverlay('form');
   }
   function closeForm(){
@@ -2941,6 +3118,7 @@
     }
   }
   function submitForm(){
+    fxFlush();
     if(state.formKind === 'movie'){ submitMovieForm(); return; }
     var d = state.formDraft;
     if(!d.title || !d.title.trim()) return;
@@ -2968,6 +3146,7 @@
         episodeMinutes: mins, episodesPerAiring: perDrop, watched:0, related: d.related ? d.related.slice() : [] });
       if(prem) state.shows[state.shows.length-1].premiereEpisodes = prem;
     }
+    fxApplyDraft(d.id ? getShow(d.id) : state.shows[state.shows.length-1], d);
     touch();
     state.overlay = null; state.formDraft = null; state.editingShowId = null;
     render();
@@ -2991,6 +3170,7 @@
         posterIndex: d.posterIndex, posterImage: d.posterImage || null, posterCrops: d.posterCrops || defaultCrops(),
         related: d.related ? d.related.slice() : [] });
     }
+    fxApplyDraft(d.id ? getShow(d.id) : state.shows[state.shows.length-1], d);
     touch();
     state.overlay = null; state.formDraft = null; state.editingShowId = null;
     render();
@@ -3252,6 +3432,9 @@
           state.formDraft[field].splice(idx,1);
           render();
         })(); break;
+      case 'fx-daymode': case 'fx-day-step': case 'fx-per-step': case 'fx-day-add': case 'fx-day-del': case 'fx-watch': case 'fx-dub': case 'fx-dub-new':
+      case 'fx-genre-edit': case 'fx-genre-new': case 'fx-genre-ren': case 'fx-genre-del': case 'fx-genre-del-ok':
+        fxAction(action, btn); break;
       case 'toggle-day':
         (function(){
           var day = parseInt(btn.getAttribute('data-day'),10);
