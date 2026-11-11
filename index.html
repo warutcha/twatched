@@ -829,6 +829,10 @@
   .fo-menu button{ display:flex; align-items:center; gap:12px; border:0; border-top:1px solid var(--border); background:none; padding:14px 4px; font:700 15px var(--font-body); color:var(--text); cursor:pointer; text-align:left; }
   .fo-menu button:first-child{ border-top:0; } .fo-menu .icon{ width:20px; height:20px; color:var(--text-muted); }
   .fo-menu .fo-menu__del, .fo-menu .fo-menu__del .icon{ color:var(--danger); }
+  /* v2.24.1: an installed iPhone app (status bar drawn over the page) sizes 100vh without the status bar, and when a tab's
+     page is shorter than that, the fixed menu bar and + button get placed that much too high. Making every tab page at
+     least one full screen tall (100vh + the status bar) keeps them at the true bottom on every page, short or long. */
+  .app-screen:not(.app-screen--overlay){ min-height:calc(100vh + env(safe-area-inset-top, 0px)); }
   .st-pill:disabled{ opacity:.35; cursor:default; }
   .st-pill small{ display:block; font-size:10px; font-weight:600; opacity:.75; margin-top:2px; }
   .st-weeks{ display:flex; flex-direction:column; gap:6px; }
@@ -932,6 +936,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=236"></script>
+<script src="app.js?v=237"></script>
 </body>
 </html>
