@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.23.0';
+  var APP_VERSION = 'v2.24.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -556,6 +556,106 @@
       '<ul class="st-list">' + order.map(function(k, i){ return '<li><span class="st-dot" style="background:' + col(i) + '"></span><div class="st-li-main"><b>' + stEsc(k) + '</b></div><span class="st-li-v">' + stHmS(b[k]) + ' · ' + Math.round(b[k]/tot*100) + '%</span></li>'; }).join('') + '</ul>' +
       (unset ? '<p class="st-sub" style="margin:8px 0 0">' + unset + ' title' + (unset === 1 ? '' : 's') + ' not set · not counted</p>' : '') + '</div>';
   }
+
+  /* ---------------- v2.24: folders as an overview of cards; each folder opens its own page ----------------
+     state.openFolderId = a folder's id, or '__none' for series in no folder (screen state only, not saved). */
+  ICON_PATHS.folder = '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.2l2 2h8.8A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>';
+  ICON_PATHS.dots = '<circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/>';
+  function folderShows(fid){
+    return state.shows.filter(function(s){ return s.type !== 'movie' && (fid === '__none' ? !(s.folderIds && s.folderIds.length) : (s.folderIds || []).indexOf(fid) !== -1); });
+  }
+  function folderSubText(items){
+    var nw = items.filter(function(s){ return !isDropped(s) && statusBadge(s) === 'New episode'; }).length;
+    return items.length + ' show' + (items.length === 1 ? '' : 's') + (nw ? ' · <b class="fo-new">' + nw + ' new</b>' : '');
+  }
+  function folderCollage(items){
+    var top = dropLast(items).slice(0, 4);
+    if(!top.length) return '<div class="fo-col fo-col--0">' + icon('folder') + '</div>';
+    return '<div class="fo-col fo-col--' + top.length + '">' + top.map(function(s){
+      return '<div class="fo-cell" style="' + (s.posterImage ? '' : posterStyle(s)) + '">' + (s.posterImage ? posterImgTag(s, 'grid') : '<span>' + initialOf(s) + '</span>') + '</div>';
+    }).join('') + '</div>';
+  }
+  function folderOverviewHtml(){
+    var ed = state.browseEditMode, n = state.folders.length, out = '<div class="fo-grid">';
+    state.folders.forEach(function(f, i){
+      var items = folderShows(f.id), name;
+      if(state.renamingFolderId === f.id){
+        name = '<div class="fo-ren"><input type="text" id="renameFolderInput_' + f.id + '" class="shelf-rename-input" value="' + stEsc(f.name) + '" data-action-input="rename-folder" data-folder="' + f.id + '">' +
+          '<button class="icon-btn-sm" data-action="confirm-rename-folder" data-folder="' + f.id + '" aria-label="Save name">' + icon('check') + '</button></div>';
+      } else name = '<p class="fo-name">' + stEsc(f.name) + '</p>';
+      out += '<div class="fo-card' + (ed ? ' fo-card--ed' : '') + '"' + (ed ? '' : ' data-action="open-folder" data-folder="' + f.id + '" role="button" tabindex="0" aria-label="Open ' + stEsc(f.name) + '"') + '>' +
+        folderCollage(items) + name + '<p class="fo-sub">' + folderSubText(items) + '</p>' +
+        (ed ? '<div class="fo-ctl">' +
+          '<button class="icon-btn-sm" data-action="move-folder" data-folder="' + f.id + '" data-dir="-1"' + (i === 0 ? ' disabled' : '') + ' aria-label="Move earlier">' + icon('left') + '</button>' +
+          '<button class="icon-btn-sm" data-action="move-folder" data-folder="' + f.id + '" data-dir="1"' + (i === n - 1 ? ' disabled' : '') + ' aria-label="Move later">' + icon('right') + '</button>' +
+          '<button class="icon-btn-sm" data-action="rename-folder" data-folder="' + f.id + '" aria-label="Rename">' + icon('pencil') + '</button>' +
+          '<button class="icon-btn-sm icon-btn-sm--danger" data-action="fo-del-ask" data-folder="' + f.id + '" aria-label="Delete folder">' + icon('trash') + '</button></div>' : '') +
+      '</div>';
+    });
+    var loose = folderShows('__none');
+    if(loose.length && !ed) out += '<div class="fo-card fo-card--none" data-action="open-folder" data-folder="__none" role="button" tabindex="0" aria-label="Open Not in a folder">' + folderCollage(loose) + '<p class="fo-name">Not in a folder</p><p class="fo-sub">' + folderSubText(loose) + '</p></div>';
+    out += state.newFolderCard
+      ? '<div class="fo-card"><div class="fo-col fo-col--new"><input type="text" id="newFolderInput" data-action-input="new-folder" placeholder="Folder name" maxlength="40" autocomplete="off"><button type="button" class="fo-create" data-action="add-folder">Create</button></div></div>'
+      : '<button type="button" class="fo-card fo-add" data-action="fo-new">' + '<span class="fo-col fo-col--new">' + icon('plus') + 'New folder</span></button>';
+    return out + '</div>';
+  }
+  function folderPageHtml(){
+    var fid = state.openFolderId, none = fid === '__none', f = none ? { id:'__none', name:'Not in a folder' } : getFolder(fid);
+    var items = folderShows(fid), ed = state.folderPageEdit && !none;
+    var act = autoSortShows(items.filter(function(s){ return !isDropped(s); }), Date.now()), drop = dropLast(items.filter(isDropped));
+    var tiles = function(list){ return '<div class="browse-grid">' + list.map(function(s){ return tileMarkup(s, ed ? { removeFolderId:fid } : null); }).join('') + '</div>'; };
+    var title = state.renamingFolderId === fid
+      ? '<div class="fo-ren fo-ren--page"><input type="text" id="renameFolderInput_' + fid + '" class="shelf-rename-input" value="' + stEsc(f.name) + '" data-action-input="rename-folder" data-folder="' + fid + '"><button class="icon-btn-sm" data-action="confirm-rename-folder" data-folder="' + fid + '" aria-label="Save name">' + icon('check') + '</button></div>'
+      : '<h1 class="screen-title fo-title">' + stEsc(f.name) + '</h1>';
+    return '<div class="screen-pad" style="position:relative;min-height:100%;">' +
+      '<div class="fo-head"><button type="button" class="fo-back" data-action="fo-back">' + icon('back') + 'Browse</button>' +
+        '<div class="ku-acts">' + (ed ? '' : kuInfoBtn()) + (none ? '' : ed ? '<button class="edit-toggle active" data-action="fo-edit">Done</button>' : '<button type="button" class="fo-more" data-action="fo-menu" aria-label="Folder options">' + icon('dots') + '</button>') + '</div></div>' +
+      title + '<p class="screen-kicker fo-kick">' + (ed ? 'Tap ✕ to take a show out of this folder.' : folderSubText(items)) + '</p>' +
+      (items.length ? (act.length ? tiles(act) : '') + (drop.length ? '<p class="fo-sep">Dropped</p>' + tiles(drop) : '')
+        : '<div class="empty-block"><span>' + icon('folder') + '</span><strong>No shows here yet</strong><p>' + (none ? 'Every series is in a folder.' : 'Use ··· → Add shows.') + '</p></div>') +
+      (ed ? '<button class="shelf-addshows-btn" data-action="open-addshows" data-folder="' + fid + '">' + icon('plus') + ' Add shows</button>' : '') +
+    '</div>';
+  }
+  function foMenu(fid){
+    var f = getFolder(fid); if(!f) return;
+    stOpenSheet('<h4>' + stEsc(f.name) + '</h4><div class="fo-menu">' +
+      '<button type="button" data-action="fo-rename" data-folder="' + fid + '">' + icon('pencil') + 'Rename</button>' +
+      '<button type="button" data-action="fo-add" data-folder="' + fid + '">' + icon('plus') + 'Add shows</button>' +
+      '<button type="button" data-action="fo-edit">' + icon('close') + 'Remove shows</button>' +
+      '<button type="button" class="fo-menu__del" data-action="fo-del-ask" data-folder="' + fid + '">' + icon('trash') + 'Delete folder</button></div>');
+  }
+  function foDelAsk(fid){
+    var f = getFolder(fid); if(!f) return; var n = folderShows(fid).length;
+    stOpenSheet('<h4>Delete “' + stEsc(f.name) + '”?</h4><p class="drop-sub">' + (n ? 'The ' + n + ' show' + (n === 1 ? '' : 's') + ' in it stay in the app; only the folder goes.' : 'It’s empty.') + '</p>' +
+      '<div class="drop-acts"><button type="button" class="btn btn-ghost" data-action="stats-close-sheet">Cancel</button><button type="button" class="btn drop-btn-stop" data-action="fo-del-ok" data-folder="' + fid + '">Delete</button></div>');
+  }
+  var foScroll = 0;
+  function foAction(act, btn){
+    var fid = btn.getAttribute('data-folder');
+    switch(act){
+      case 'open-folder': if(fid !== '__none' && !getFolder(fid)) return; foScroll = window.scrollY; state.openFolderId = fid; state.folderPageEdit = false; state.renamingFolderId = null; render(); window.scrollTo(0, 0); return;
+      case 'fo-back': state.openFolderId = null; state.folderPageEdit = false; state.renamingFolderId = null; render(); window.scrollTo(0, foScroll); return;
+      case 'fo-menu': foMenu(state.openFolderId); return;
+      case 'fo-rename': stCloseSheet(); state.renamingFolderId = fid; pendingFocusId = 'renameFolderInput_' + fid; break;
+      case 'fo-add': stCloseSheet(); state.addingShowsFolderId = fid; openOverlay('addshows'); break;
+      case 'fo-edit': stCloseSheet(); state.folderPageEdit = !state.folderPageEdit; break;
+      case 'fo-del-ask': stCloseSheet(); foDelAsk(fid); return;
+      case 'fo-del-ok':
+        stCloseSheet();
+        state.folders = state.folders.filter(function(x){ return x.id !== fid; });
+        state.shows.forEach(function(s){ if(s.folderIds) s.folderIds = s.folderIds.filter(function(x){ return x !== fid; }); });
+        if(state.openFolderId === fid){ state.openFolderId = null; state.folderPageEdit = false; }
+        touch(); render(); window.scrollTo(0, state.openFolderId ? window.scrollY : foScroll); return;
+      case 'fo-new': state.newFolderCard = true; pendingFocusId = 'newFolderInput'; break;
+      default: return;
+    }
+    render();
+  }
+  // leaving the new-folder box empty puts the "＋ New folder" card back
+  document.addEventListener('focusout', function(e){
+    if(e.target.id !== 'newFolderInput' || !state.newFolderCard) return;
+    var t = e.target; setTimeout(function(){ if(document.body.contains(t) && !t.value.trim() && document.activeElement !== t){ state.newFolderCard = false; render(); } }, 150);
+  });
 
   /* ---------------- local storage ----------------
      The app's data (with all poster/cast photos) has outgrown localStorage's ~5 MB cap on iPhone, which
@@ -1926,9 +2026,13 @@
       out += '</div>';
       return out;
     }
+    if(state.browseViewMode === 'folder' && state.openFolderId){
+      if(state.openFolderId === '__none' || getFolder(state.openFolderId)) return folderPageHtml();
+      state.openFolderId = null;
+    }
     var out2 = '<div class="screen-pad" style="position:relative;min-height:100%;">';
     var editable = state.browseViewMode === 'folder';
-    out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (editable && state.browseEditMode ? 'Rename, reorder, or remove shows from folders.' : (state.browseViewMode==='movies' ? 'Sorted by most recently watched.' : state.browseViewMode==='dropped' ? 'Series you stopped watching. Hold a poster to resume.' : 'Tap a poster to open it.')) + '</p></div>' +
+    out2 += '<div class="row-between"><div><h1 class="screen-title" style="margin-bottom:2px;">Browse</h1><p class="screen-kicker">' + (editable && state.browseEditMode ? 'Reorder, rename or delete folders.' : editable ? 'Tap a folder to open it.' : (state.browseViewMode==='movies' ? 'Sorted by most recently watched.' : state.browseViewMode==='dropped' ? 'Series you stopped watching. Hold a poster to resume.' : 'Tap a poster to open it.')) + '</p></div>' +
       '<div class="ku-acts">' + ((state.browseViewMode === 'all' || state.browseViewMode === 'folder') && !(editable && state.browseEditMode) ? kuInfoBtn() : '') +
       (editable ? '<button class="edit-toggle' + (state.browseEditMode?' active':'') + '" data-action="toggle-browse-edit">' + (state.browseEditMode?'Done':'Edit') + '</button>' : '') + '</div>' +
     '</div>';
@@ -1955,44 +2059,7 @@
       var allSorted = autoSortShows(state.shows.filter(function(s){ return s.type !== 'movie' && !isDropped(s); }), Date.now());
       out2 += '<div class="browse-grid">' + allSorted.map(function(s){ return tileMarkup(s, null); }).join('') + '</div>';
     } else {
-      state.folders.forEach(function(f, fi){
-        var items = orderedFolderItems(f, state.shows.filter(function(s){ return s.type !== 'movie' && (s.folderIds||[]).indexOf(f.id) !== -1; }));
-        out2 += '<div class="shelf">';
-        out2 += '<div class="shelf-head">';
-        if(state.renamingFolderId === f.id){
-          out2 += '<input type="text" id="renameFolderInput_' + f.id + '" class="shelf-rename-input" value="' + f.name.replace(/"/g,'&quot;') + '" data-action-input="rename-folder" data-folder="' + f.id + '">' +
-            '<button class="icon-btn-sm" data-action="confirm-rename-folder" data-folder="' + f.id + '" aria-label="Save name">' + icon('check') + '</button>';
-        } else {
-          out2 += '<h3 class="shelf-title">' + f.name + '</h3>';
-          if(state.browseEditMode){
-            out2 += '<div class="shelf-ctl">' +
-              '<button class="icon-btn-sm" data-action="move-folder" data-folder="' + f.id + '" data-dir="-1"' + (fi===0?' disabled style="opacity:.35;"':'') + ' aria-label="Move up">' + icon('up') + '</button>' +
-              '<button class="icon-btn-sm" data-action="move-folder" data-folder="' + f.id + '" data-dir="1"' + (fi===state.folders.length-1?' disabled style="opacity:.35;"':'') + ' aria-label="Move down">' + icon('down') + '</button>' +
-              '<button class="icon-btn-sm" data-action="rename-folder" data-folder="' + f.id + '" aria-label="Rename">' + icon('pencil') + '</button>' +
-              '<button class="icon-btn-sm icon-btn-sm--danger" data-action="delete-folder" data-folder="' + f.id + '" aria-label="Delete folder">' + icon('trash') + '</button>' +
-            '</div>';
-          }
-        }
-        out2 += '</div>';
-        if(items.length === 0){
-          out2 += '<div class="shelf-empty">No shows here yet.</div>';
-        } else {
-          out2 += '<div class="shelf-row">' + items.map(function(s){
-            return tileMarkup(s, state.browseEditMode ? { removeFolderId:f.id } : null);
-          }).join('') + '</div>';
-        }
-        if(state.browseEditMode){
-          out2 += '<button class="shelf-addshows-btn" data-action="open-addshows" data-folder="' + f.id + '">' + icon('plus') + ' Add shows</button>';
-        }
-        out2 += '</div>';
-      });
-      var unsorted = orderedFolderItems(null, state.shows.filter(function(s){ return s.type !== 'movie' && !(s.folderIds && s.folderIds.length); }));
-      if(unsorted.length){
-        out2 += '<div class="shelf shelf-unsorted"><div class="shelf-head"><h3 class="shelf-title shelf-title--muted">Unsorted</h3></div>' +
-          '<div class="shelf-row">' + unsorted.map(function(s){ return tileMarkup(s, null); }).join('') + '</div></div>';
-      }
-      out2 += '<div class="new-folder-row"><input type="text" id="newFolderInput" data-action-input="new-folder" placeholder="New folder name…">' +
-        '<button type="button" data-action="add-folder">Create</button></div>';
+      out2 += folderOverviewHtml();
     }
     out2 += '</div>';
     return out2;
@@ -3245,7 +3312,7 @@
           var fromTab = state.overlay ? -1 : NAV_TABS.indexOf(state.activeTab);
           state.activeTab = btn.getAttribute('data-tab');
           state.overlay = null;
-          if(state.activeTab === 'browse'){ state.browseViewMode = 'all'; state.browseEditMode = false; }
+          if(state.activeTab === 'browse'){ state.browseViewMode = 'all'; state.browseEditMode = false; state.openFolderId = null; state.folderPageEdit = false; state.newFolderCard = false; }
           if(state.activeTab === 'stats') statsResetPeriod();
           render();
           window.scrollTo(0, 0);
@@ -3565,10 +3632,12 @@
         render(); break;
       case 'set-browse-view':
         state.browseViewMode = btn.getAttribute('data-value');
-        state.browseEditMode = false;
+        state.browseEditMode = false; state.openFolderId = null; state.folderPageEdit = false; state.newFolderCard = false; state.renamingFolderId = null;
         render(); break;
       case 'toggle-browse-edit':
-        state.browseEditMode = !state.browseEditMode; state.renamingFolderId = null; render(); break;
+        state.browseEditMode = !state.browseEditMode; state.renamingFolderId = null; state.newFolderCard = false; render(); break;
+      case 'open-folder': case 'fo-back': case 'fo-menu': case 'fo-rename': case 'fo-add': case 'fo-edit': case 'fo-del-ask': case 'fo-del-ok': case 'fo-new':
+        foAction(action, btn); break;
       case 'add-folder':
         (function(){
           var inp = document.getElementById('newFolderInput');
