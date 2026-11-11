@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.22.0';
+  var APP_VERSION = 'v2.23.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1252,7 +1252,7 @@
      Everything happens on the phone: the image is drawn on a canvas from the wrap's own numbers and
      posters, then handed to the iPhone share sheet (or saved). Nothing is uploaded, nothing is saved
      to the app's data. */
-  var stShare = { open:false, mode:'wrap', style:'grid', hours:true, file:null, imgs:null, busy:0, opt:{ rating:true, feel:true, prog:true }, showId:null, ep:0, draft:null, img:null };
+  var stShare = { open:false, mode:'wrap', style:'grid', hours:true, file:null, imgs:null, busy:0, opt:{ rating:true, feel:true, prog:true, plat:true }, showId:null, ep:0, draft:null, img:null };
   function stShareOpen(){
     if(!stStory.st) return;
     stShare.mode = 'wrap';
@@ -1428,8 +1428,8 @@
       '<p class="st-share-sub">' + (ep ? 'Episode ' + ep + ' · ' : '') + stEsc(show.title) + '</p>' +
       (ep ? '' : '<div class="st-share-styles st-share-views">' + [['story','Story'],['review','Review']].map(function(v){ return '<button type="button" class="' + ((review ? 'review' : 'story') === v[0] ? 'on' : '') + '" data-action="share-view" data-value="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>') +
       '<div class="st-share-pv"><canvas id="stShareCv" width="1080" height="1920"></canvas></div>' +
-      (review ? stRvFieldsHtml(show) : '<div class="st-share-opts">' + [['rating','Rating'],['feel','Feelings'],['prog','Progress &amp; time']].concat(canStop ? [['drop','Show that I stopped watching']] : []).map(function(o){
-        return '<button type="button" class="st-share-toggle' + (stShare.opt[o[0]] ? ' on' : '') + '" data-action="share-opt" data-value="' + o[0] + '" aria-pressed="' + stShare.opt[o[0]] + '"><span class="sw"><i></i></span>' + o[1] + '</button>'; }).join('') + '</div>') +
+      (review ? stRvFieldsHtml(show) : '<div class="st-share-opts">' + [['rating','Rating'],['feel','Feelings'],['prog','Progress &amp; time']].concat(canStop ? [['drop','Show that I stopped watching']] : [], ep && show.platform ? [['plat','Platform tag (' + stEsc(show.platform) + ')']] : []).map(function(o){
+        return '<button type="button" class="st-share-toggle' + (stShare.opt[o[0]] ? ' on' : '') + '" data-action="share-opt" data-value="' + o[0] + '" aria-pressed="' + stShare.opt[o[0]] + '"><span class="sw"><i></i></span>' + o[1] + '</button>'; }).join('') + '</div>' + '<div class="st-rv st-pic2">' + stPic2Html() + '</div>') +
       '<div class="st-share-actions"><button type="button" data-action="share-save">Save image</button><button type="button" class="primary" data-action="share-go">Share…</button></div>' +
       '<p class="st-share-msg" id="stShareMsg"></p>';
     host.classList.add('on'); document.getElementById('stShareScrim').classList.add('on');
@@ -1493,17 +1493,24 @@
     else { var g0 = GRADIENTS[(show.posterIndex||0) % GRADIENTS.length], bg = ctx.createLinearGradient(0,0,1080,1920); bg.addColorStop(0,g0[0]); bg.addColorStop(1,g0[1]); ctx.fillStyle = bg; ctx.fillRect(0,0,1080,1920); }
     ctx.fillStyle = 'rgba(0,0,0,.48)'; ctx.fillRect(0,0,1080,1920);
     var sh = ctx.createLinearGradient(0,1000,0,1920); sh.addColorStop(0,'rgba(0,0,0,0)'); sh.addColorStop(1,'rgba(0,0,0,.55)'); ctx.fillStyle = sh; ctx.fillRect(0,1000,1080,920);
-    // Instagram covers about the top 250px and bottom 340px, so everything sits between y 250 and 1580.
+    // Content starts below Instagram's top bar (y 250); the app name sits at the very bottom.
     var stopped = !ep && !movie && o.drop && isDropped(show);
     var kick = ep ? 'Just watched' : movie ? 'Movie night' : stopped ? 'Stopped watching' : show.watched >= total ? 'Finished' : show.watched > 0 ? 'Now watching' : 'On my list';
     ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = '800 28px Manrope, sans-serif'; stSpaced(ctx, 4); ctx.fillText(kick.toUpperCase(), 540, 300); stSpaced(ctx, 0);
-    stCropPoster(ctx, show, im, 305, 335, 470, 705, 30);
+    // the poster, and the optional 2nd picture beside it (both a little smaller then)
+    var pic2 = stShare.rv && stShare.rv.showId === show.id ? stShare.rv.pic2 : null;
+    var PH = pic2 ? 600 : 705, pw1 = Math.round(PH * 2/3), pw2 = pic2 ? Math.round(PH * Math.max(.55, Math.min(1.2, pic2.width / pic2.height))) : 0;
+    if(pw1 + (pic2 ? 30 + pw2 : 0) > 960){ var pk = 960 / (pw1 + 30 + pw2); PH = Math.round(PH*pk); pw1 = Math.round(pw1*pk); pw2 = Math.round(pw2*pk); }
+    var px0 = Math.round(540 - (pw1 + (pic2 ? 30 + pw2 : 0)) / 2), pBot = 335 + PH, pRight = px0 + pw1 + (pic2 ? 30 + pw2 : 0);
+    stCropPoster(ctx, show, im, px0, 335, pw1, PH, 30);
+    if(pic2) stRvImage(ctx, pic2, px0 + pw1 + 30, 335, pw2, PH, 30);
     if(ep){ // corner tag
       var tag = 'EPISODE ' + ep; ctx.font = '800 26px Manrope, sans-serif'; stSpaced(ctx, 3); var tw = ctx.measureText(tag).width + 44;
-      stRR(ctx, 325, 355, tw, 56, 28); ctx.fillStyle = 'rgba(15,17,28,.72)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(tag, 347, 393); stSpaced(ctx, 0); ctx.textAlign = 'center';
+      stRR(ctx, px0 + 20, 355, tw, 56, 28); ctx.fillStyle = 'rgba(15,17,28,.72)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(tag, px0 + 42, 393); stSpaced(ctx, 0); ctx.textAlign = 'center';
+      if(o.plat && show.platform) stPlatSticker(ctx, show.platform, pRight + 16, pBot - 10, 32);
     }
-    var y = 1130; ctx.fillStyle = '#fff'; stFitFont(ctx, show.title, 940, 64, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, show.title, 940), 540, y);
+    var y = pBot + 90; ctx.fillStyle = '#fff'; stFitFont(ctx, show.title, 940, 64, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, show.title, 940), 540, y);
     var sub;
     if(ep){ sub = stEpDate(show, ep) + (o.prog && total ? ' · ' + ep + ' of ' + total : ''); }
     else sub = [show.seasonLabel, show.originalTitle || (movie && show.releaseYear ? String(show.releaseYear) : '')].filter(Boolean).join(' · ');
@@ -1533,7 +1540,7 @@
     }
     // Always centred: the feelings chips leave the alignment on "left", and with Progress & time switched off
     // nothing after them set it back, so the name slid to the right.
-    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '800 26px Manrope, sans-serif'; stSpaced(ctx, 6); ctx.fillText('TWATCHED', 540, Math.min(1572, Math.max(y + 80, 1500))); stSpaced(ctx, 0);
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '800 26px Manrope, sans-serif'; stSpaced(ctx, 6); ctx.fillText('TWATCHED', 540, 1856); stSpaced(ctx, 0);
     ctx.textAlign = 'left';
   }
   // v2.20: the progress bar ends where you stopped, with a ✕, then "Stopped at Episode 6 of 12" and your reason
@@ -1582,10 +1589,13 @@
         (show.platform ? '<button type="button" class="st-share-toggle' + (rv.plat ? ' on' : '') + '" data-action="share-rv-opt" data-value="plat" aria-pressed="' + rv.plat + '"><span class="sw"><i></i></span>Platform tag (' + stEsc(show.platform) + ')</button>' : '') +
         '<button type="button" class="st-share-toggle' + (rv.light ? ' on' : '') + '" data-action="share-rv-opt" data-value="light" aria-pressed="' + rv.light + '"><span class="sw"><i></i></span>Light background</button>' +
       '</div>' +
-      (rv.pic2 ? '<div class="st-rv-pic"><span>2nd picture added</span><button type="button" data-action="share-rv-pic-x">Remove</button></div>'
-               : '<label class="st-rv-add">＋ Add a 2nd picture from Photos<input type="file" id="stRvPic" accept="image/*" hidden></label>') +
-    '</div>';
+      stPic2Html() + '</div>';
   }
+  function stPic2Html(){
+    return stShare.rv && stShare.rv.pic2 ? '<div class="st-rv-pic"><span>2nd picture added</span><button type="button" data-action="share-rv-pic-x">Remove</button></div>'
+      : '<label class="st-rv-add">＋ Add a 2nd picture from Photos<input type="file" id="stRvPic" accept="image/*" hidden></label>';
+  }
+  function stShareReopen(){ stShareOpenShow(stShare.showId, stShare.mode === 'ep' ? stShare.ep : 0, stShare.draft, true); }
   var stRvTimer = null;
   document.addEventListener('input', function(e){
     if(!stShare.open || !stShare.rv || (e.target.id !== 'stRvScore' && e.target.id !== 'stRvLine')) return;
@@ -1596,7 +1606,7 @@
   document.addEventListener('change', function(e){
     if(e.target.id !== 'stRvPic' || !e.target.files || !e.target.files[0] || !stShare.rv) return;
     var fr = new FileReader();
-    fr.onload = function(){ var im = new Image(); im.onload = function(){ if(!stShare.open) return; stShare.rv.pic2 = im; stShareOpenShow(stShare.showId, 0, null, true); }; im.src = fr.result; };
+    fr.onload = function(){ var im = new Image(); im.onload = function(){ if(!stShare.open) return; stShare.rv.pic2 = im; stShareReopen(); }; im.src = fr.result; };
     fr.readAsDataURL(e.target.files[0]);
   });
   // is the poster light overall? (decides dark or light text when "Light background" is off)
@@ -1610,6 +1620,13 @@
     ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 36; ctx.shadowOffsetY = 14; stRR(ctx, x, y, w, h, r); ctx.fillStyle = '#222'; ctx.fill(); ctx.shadowColor = 'transparent';
     stRR(ctx, x, y, w, h, r); ctx.clip();
     var k = Math.max(w/im.width, h/im.height), dw = im.width*k, dh = im.height*k; ctx.drawImage(im, x + (w-dw)/2, y + (h-dh)/2, dw, dh); ctx.restore();
+  }
+  // tilted platform tag in its brand colours; (rightX, cy) = where its right end and middle sit
+  function stPlatSticker(ctx, t, rightX, cy, fs){
+    var col = ST_PLAT[t] || ['#111111','#FFFFFF']; ctx.save(); ctx.font = '800 ' + fs + 'px Manrope, sans-serif'; var tw = ctx.measureText(t).width + fs * 1.2, th = Math.round(fs * 1.8);
+    ctx.translate(rightX - tw/2, cy); ctx.rotate(-6 * Math.PI / 180);
+    ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4; stRR(ctx, -tw/2, -th/2, tw, th, 10); ctx.fillStyle = col[0]; ctx.fill(); ctx.shadowColor = 'transparent';
+    ctx.fillStyle = col[1]; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 0, 2); ctx.restore(); ctx.textBaseline = 'alphabetic';
   }
   function stShareRenderReview(ctx, im){
     var show = getShow(stShare.showId); if(!show) return;
@@ -1627,10 +1644,7 @@
     stCropPoster(ctx, show, im, x0, top, w1, H, 18);
     if(pic2) stRvImage(ctx, pic2, x0 + w1 + gap, top, w2, H, 18);
     if(rv.plat && show.platform){
-      var col = ST_PLAT[show.platform] || ['#111111','#FFFFFF'], t = show.platform; ctx.font = '800 30px Manrope, sans-serif'; var tw = ctx.measureText(t).width + 36;
-      ctx.save(); ctx.translate(x0 + w1 + (pic2 ? gap + w2 : 0) - tw/2 + 14, top + H - 8); ctx.rotate(-6 * Math.PI / 180);
-      ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4; stRR(ctx, -tw/2, -27, tw, 54, 10); ctx.fillStyle = col[0]; ctx.fill(); ctx.shadowColor = 'transparent';
-      ctx.fillStyle = col[1]; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 0, 2); ctx.restore(); ctx.textBaseline = 'alphabetic';
+      stPlatSticker(ctx, show.platform, x0 + w1 + (pic2 ? gap + w2 : 0) + 14, top + H - 8, 30);
     }
     // "Title, Year", then the one-liner under it
     var yr = stRvYear(show), title = show.title + (yr ? ', ' + yr : ''), ty = top + H + 104;
@@ -3370,7 +3384,7 @@
       case 'share-rv-opt':
         (function(){ var k = btn.getAttribute('data-value'); stShare.rv[k] = !stShare.rv[k]; btn.classList.toggle('on', stShare.rv[k]); btn.setAttribute('aria-pressed', String(stShare.rv[k])); stShareDraw(); })(); break;
       case 'share-rv-pic-x':
-        stShare.rv.pic2 = null; stShareOpenShow(stShare.showId, 0, null, true); break;
+        stShare.rv.pic2 = null; stShareReopen(); break;
       case 'share-opt':
         (function(){ var k = btn.getAttribute('data-value'); stShare.opt[k] = !stShare.opt[k]; btn.classList.toggle('on', stShare.opt[k]); btn.setAttribute('aria-pressed', String(stShare.opt[k])); stShareDraw(); })(); break;
       case 'share-style':
