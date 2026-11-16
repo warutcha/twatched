@@ -833,6 +833,12 @@
      page is shorter than that, the fixed menu bar and + button get placed that much too high. Making every tab page at
      least one full screen tall (100vh + the status bar) keeps them at the true bottom on every page, short or long. */
   .app-screen:not(.app-screen--overlay){ min-height:calc(100vh + env(safe-area-inset-top, 0px)); }
+  /* v2.25: older series */
+  .ar-note{ display:flex; gap:10px; align-items:flex-start; margin:0 0 16px; padding:11px 13px; border-radius:14px; font-size:12.5px; line-height:1.45; color:var(--text);
+    background:color-mix(in srgb, var(--teal) 10%, transparent); border:1px solid color-mix(in srgb, var(--teal) 30%, transparent); }
+  .ar-note .icon{ flex:none; width:16px; height:16px; color:var(--teal); margin-top:1px; }
+  .ep-row--out .ep-row__num{ border:1.5px solid var(--border); background:none; }
+  .ep-row--out .ep-row__num .icon{ display:none; }
   .st-pill:disabled{ opacity:.35; cursor:default; }
   .st-pill small{ display:block; font-size:10px; font-weight:600; opacity:.75; margin-top:2px; }
   .st-weeks{ display:flex; flex-direction:column; gap:6px; }
@@ -936,6 +942,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=237"></script>
+<script src="app.js?v=238"></script>
 </body>
 </html>

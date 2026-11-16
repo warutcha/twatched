@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.24.1';
+  var APP_VERSION = 'v2.25.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -76,7 +76,11 @@
     return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
   }
   function isoDate(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
-  function computeEpisodeDate(show, episodeNumber){ return occurrenceDate(show, epOccurrence(show, episodeNumber)); }
+  function computeEpisodeDate(show, episodeNumber){
+    var d = occurrenceDate(show, epOccurrence(show, episodeNumber));
+    if(show.aired){ var a = airedSince(show); if(isNaN(d.getTime()) || d.getTime() > a) return new Date(a); }
+    return d;
+  }
   // the date of the n-th air day (1 = the day episode 1 airs)
   function occurrenceDate(show, occurrenceIndex){
     var t = (show.airTime||'20:00').split(':');
@@ -150,6 +154,7 @@
     return days + (days===1?' day ago':' days ago');
   }
   function scheduleText(show){
+    if(show.aired) return airedDetailText(show);
     var days = (show.airDays||[]).slice().sort().map(function(i){ return WEEKDAY_LABELS[i]; });
     var joined = days.length <= 1 ? (days[0]||'—') : (days.slice(0,-1).join(', ') + ' & ' + days[days.length-1]);
     var perDrop = show.episodesPerAiring || 1;
@@ -385,7 +390,7 @@
   function fxInitDraft(){
     var d = state.formDraft; if(!d) return; var s = d.id ? getShow(d.id) : null;
     state.genreEdit = false; state.genreRen = null; state.genreAdding = false; state.dubAdding = false;
-    d.watchLang = (s && s.watchLang) || ''; d.dubLang = (s && s.dubLang) || '';
+    d.watchLang = (s && s.watchLang) || ''; d.dubLang = (s && s.dubLang) || ''; arInitDraft(d, s);
     if(d.type === 'movie') return;
     var dc = s ? dayCountsOf(s) : null, p = s ? parseInt(s.premiereEpisodes, 10) : 0;
     if(!dc && p > 0 && p !== (s.episodesPerAiring || 1)) dc = [p];
@@ -395,6 +400,7 @@
     if(!s || !d) return;
     if(d.watchLang === 'sub' || d.watchLang === 'dub') s.watchLang = d.watchLang; else delete s.watchLang;
     if(d.watchLang === 'dub' && d.dubLang) s.dubLang = d.dubLang; else delete s.dubLang;
+    arApply(s, d);
     if(s.type === 'movie') return;
     var per = s.episodesPerAiring || 1, total = s.totalEpisodes || 1, out = [], acc = 0;
     if(d.dayMode === 'diff') (d.dayCounts || []).forEach(function(v){ v = parseInt(v, 10); if(v > 0 && acc < total){ out.push(Math.min(99, v)); acc += v; } });
@@ -656,6 +662,29 @@
     if(e.target.id !== 'newFolderInput' || !state.newFolderCard) return;
     var t = e.target; setTimeout(function(){ if(document.body.contains(t) && !t.value.trim() && document.activeElement !== t){ state.newFolderCard = false; render(); } }, 150);
   });
+
+  /* ---------------- v2.25: older series ("Already aired") ----------------
+     show.aired = 1: every episode is already out. No air days, times, reminders, Coming up or Keeping up.
+     show.airedYear = 2019 (optional). The old schedule fields stay saved, just unused, so switching back
+     to "Airing now" brings them back. An aired show's episodes count as out since the day you added it
+     (or their real air date, if that is earlier). */
+  function airedSince(show){ var t = parseInt(String(show.id).replace(/^\D+/, ''), 10); return (t > 1e12 && t <= Date.now()) ? t : Date.UTC(2000, 0, 1); }
+  function airedYearOf(show){ var y = parseInt(show.airedYear, 10); return y > 1900 && y < 3000 ? y : 0; }
+  function airedLabel(show){ var y = airedYearOf(show); return y ? 'Aired ' + y : 'Already aired'; }
+  function airedDetailText(show){ var y = airedYearOf(show), n = show.totalEpisodes || 0; return (y ? 'Aired ' + y : 'Air date unknown') + ' · ' + (n === 1 ? 'the episode is out' : 'all ' + n + ' episodes out'); }
+  function arInitDraft(d, s){ d.aired = !!(s && s.aired); d.airedYear = s && airedYearOf(s) ? String(airedYearOf(s)) : ''; }
+  function arApply(s, d){
+    if(s.type === 'movie') return;
+    if(d.aired){ s.aired = 1; var y = parseInt(d.airedYear, 10); if(y > 1900 && y < 3000) s.airedYear = y; else delete s.airedYear; }
+    else { delete s.aired; delete s.airedYear; }
+  }
+  function arField(d){
+    return '<div class="field"><label>Release</label>' + fxSeg([['now','Airing now'],['aired','Already aired']], d.aired ? 'aired' : 'now', 'ar-mode') + '</div>';
+  }
+  function arYearField(d){
+    return '<div class="field"><label>Aired in <span style="font-weight:400;color:var(--text-muted);">(year, optional)</span></label><input type="number" id="f_airedyear" data-field="airedYear" min="1900" max="2999" inputmode="numeric" placeholder="e.g. 2015" value="' + stEsc(d.airedYear || '') + '"></div>';
+  }
+  function arNote(){ return '<p class="ar-note">' + icon('check') + '<span>Every episode counts as already out. No air days, times, reminders or Coming up — watch at your own pace.' + ' Leave the year empty if you don’t know it.</span></p>'; }
 
   /* ---------------- local storage ----------------
      The app's data (with all poster/cast photos) has outgrown localStorage's ~5 MB cap on iPhone, which
@@ -1546,6 +1575,7 @@
   function stShortDate(d){ return ST_DAY[d.getDay()] + ' ' + d.getDate() + ' ' + ST_MON[d.getMonth()]; }
   function stEpDate(show, ep){
     var ts = show.watchLog && show.watchLog[String(ep)];
+    if(!ts && show.aired) return airedYearOf(show) ? 'Aired ' + airedYearOf(show) : '';
     var d = ts ? new Date(ts) : computeEpisodeDate(show, ep);
     return d && !isNaN(d.getTime()) ? stShortDate(d) : '';
   }
@@ -1612,7 +1642,7 @@
     }
     var y = pBot + 90; ctx.fillStyle = '#fff'; stFitFont(ctx, show.title, 940, 64, '600', 'Fraunces, Georgia, serif'); ctx.fillText(stClip(ctx, show.title, 940), 540, y);
     var sub;
-    if(ep){ sub = stEpDate(show, ep) + (o.prog && total ? ' · ' + ep + ' of ' + total : ''); }
+    if(ep){ sub = [stEpDate(show, ep), o.prog && total ? ep + ' of ' + total : ''].filter(Boolean).join(' · '); }
     else sub = [show.seasonLabel, show.originalTitle || (movie && show.releaseYear ? String(show.releaseYear) : '')].filter(Boolean).join(' · ');
     if(sub){ y += 52; ctx.globalAlpha = .78; stFitFont(ctx, sub, 900, 32, '600', 'Manrope, sans-serif'); ctx.fillText(stClip(ctx, sub, 900), 540, y); ctx.globalAlpha = 1; }
     var er = ep ? (stShare.draft || epRating(show, ep) || {}) : null;
@@ -1677,7 +1707,7 @@
     if(show.seriesRating) return show.seriesRating + '/10';
     var a = epAverage(show); return a ? fmt10(a) : '';
   }
-  function stRvYear(show){ var y = show.type === 'movie' ? show.releaseYear : (show.firstAirDate || '').slice(0, 4); return y ? String(y) : ''; }
+  function stRvYear(show){ var y = show.type === 'movie' ? show.releaseYear : show.aired ? airedYearOf(show) : (show.firstAirDate || '').slice(0, 4); return y ? String(y) : ''; }
   function stRvReset(show){ stShare.rv = { showId:show.id, score:stRvDefaultScore(show), line:'', plat:true, light:false, pic2:null }; }
   function stRvFieldsHtml(show){
     var rv = stShare.rv;
@@ -1903,7 +1933,7 @@
       var info = getNextEpisodeInfo(s, now);
       if(info.completed) return;
       if(info.aired) active.push({show:s, info:info});
-      comingUp.push({show:s, info:info});
+      if(!s.aired) comingUp.push({show:s, info:info});
     });
     active.sort(function(a,b){ return a.info.airDate - b.info.airDate; });
     comingUp.sort(function(a,b){ return a.info.airDate - b.info.airDate; });
@@ -1933,7 +1963,7 @@
           '<div class="ep-card__body">' +
             '<p class="ep-card__show">' + a.show.title + '</p>' +
             '<h3 class="ep-card__ep">Episode ' + a.info.number + (waiting > 1 ? '<span class="ep-card__count" aria-label="' + waiting + ' episodes out and not watched yet">×' + waiting + '</span>' : '') + '</h3>' +
-            '<p class="ep-card__meta">Released ' + fmtDateTime(a.info.airDate) + (a.show.episodeMinutes ? ' · ' + a.show.episodeMinutes + ' min' : '') + '</p>' +
+            '<p class="ep-card__meta">' + (a.show.aired ? airedLabel(a.show) : 'Released ' + fmtDateTime(a.info.airDate)) + (a.show.episodeMinutes ? ' · ' + a.show.episodeMinutes + ' min' : '') + '</p>' +
           '</div>' +
           '<button class="check-btn" data-action="check-episode" data-show="' + a.show.id + '" aria-label="Mark episode ' + a.info.number + ' of ' + a.show.title + ' watched">' + icon('check') + '</button>' +
         '</article>';
@@ -1976,7 +2006,7 @@
     if(isDropped(show)) return 'Dropped';
     var info = getNextEpisodeInfo(show, Date.now());
     if(info.completed) return 'Completed';
-    if(info.aired) return show.watched > 0 ? 'New episode' : 'Ready to start';
+    if(info.aired) return show.watched > 0 ? (show.aired ? 'Continue' : 'New episode') : 'Ready to start';
     return show.watched > 0 ? 'Caught up' : 'Coming soon';
   }
   function movieBadgeIcon(){
@@ -2234,6 +2264,12 @@
     for(var i=1;i<=show.totalEpisodes;i++){
       var d = computeEpisodeDate(show, i);
       while(skq.length && skq[0] < isoDate(d)) rows += skBreakRow(show, skq.shift());
+      if(show.aired && i > show.watched){
+        rows += i === show.watched + 1
+          ? '<li class="ep-row ep-row--ready"><button class="ep-row__check" data-action="check-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + '</span></li>'
+          : '<li class="ep-row ep-row--out"><span class="ep-row__num"></span><span class="ep-row__title">Episode ' + i + durSuffix + '</span></li>';
+        continue;
+      }
       if(i <= show.watched){
         if(i === show.watched){
           rows += '<li class="ep-row ep-row--watched ep-row--rateable" data-action="open-rate" data-show="' + show.id + '" data-ep="' + i + '"><button class="ep-row__check ep-row__check--done" data-action="uncheck-episode" data-show="' + show.id + '" aria-label="Mark episode ' + i + ' as not watched">' + icon('check') + '</button><span class="ep-row__title">Episode ' + i + durSuffix + miniRatingHtml(show, i) + '</span>' + kuDateCell(show, i, d) + epShareBtn(show, i) + '</li>';
@@ -2484,19 +2520,20 @@
         nationalityField(d) +
         folderField(d) +
         castField(d) +
+        arField(d) +
         '<div class="two-col">' +
           '<div class="field"><label>Total episodes</label><input type="number" id="f_total" data-field="totalEpisodes" min="1" value="' + d.totalEpisodes + '"></div>' +
-          '<div class="field"><label>Episode 1 airs</label><input type="date" id="f_date" data-field="firstAirDate" value="' + d.firstAirDate + '"></div>' +
-        '</div>' +
+          (d.aired ? arYearField(d) : '<div class="field"><label>Episode 1 airs</label><input type="date" id="f_date" data-field="firstAirDate" value="' + d.firstAirDate + '"></div>') +
+        '</div>' + (d.aired ? arNote() : '') +
         '<div class="field"><label>Episode length (minutes)</label><input type="number" id="f_epmin" data-field="episodeMinutes" min="1" value="' + (d.episodeMinutes||'') + '" placeholder="e.g. 45"></div>' +
-        '<div class="field"><label>Air days</label><div class="day-chips">' + dayChips + '</div></div>' +
+        (d.aired ? '' : '<div class="field"><label>Air days</label><div class="day-chips">' + dayChips + '</div></div>' +
         '<div class="sched-drop"><div id="fxDays">' + fxDaysHtml(d) + '</div>' +
         '<div class="field"><label>Release plan</label><div class="release-plan" id="f_plan">' + releasePlanHtml(d) + '</div></div></div><!--/sched-drop-->' +
         '<div class="field"><label>Air time (as broadcast)</label><div class="two-col">' +
           '<select id="f_origtz" data-tz-input>' + TZ_OPTIONS.map(function(tz){ return '<option value="' + tz.v + '"' + ((d.airTimeZone||'TH')===tz.v?' selected':'') + '>' + tz.l + '</option>'; }).join('') + '</select>' +
           '<input type="time" id="f_origtime" data-origtime-input value="' + (d.airTimeOriginal||d.airTime) + '">' +
         '</div></div>' +
-        '<div class="field"><label>Thai time (auto-converted — used for scheduling)</label><input type="time" id="f_thaitime" value="' + d.airTime + '" disabled></div>' +
+        '<div class="field"><label>Thai time (auto-converted — used for scheduling)</label><input type="time" id="f_thaitime" value="' + d.airTime + '" disabled></div>') +
         '<div class="two-col">' +
           '<div class="field"><label>Channel</label><input type="text" id="f_channel" data-field="channel" value="' + (d.channel||'').replace(/"/g,'&quot;') + '" placeholder="e.g. ONE31"></div>' +
           '<div class="field"><label>Platform (where you watch)</label><input type="text" id="f_platform" data-field="platform" list="platformList" value="' + (d.platform||'').replace(/"/g,'&quot;') + '" placeholder="e.g. WeTV"><datalist id="platformList">' + PLATFORM_OPTIONS.map(function(p){return '<option value="'+p+'">';}).join('') + '</datalist></div>' +
@@ -2613,12 +2650,12 @@
   // the times of upcoming episodes, from the same calculation the app uses everywhere
   function pushPlanSig(){
     return JSON.stringify(state.shows.filter(function(s){ return s.type !== 'movie'; }).map(function(s){
-      return [s.id, s.title, s.firstAirDate, s.airDays, s.airTime, s.episodesPerAiring || 1, s.premiereEpisodes || 0, s.totalEpisodes, s.skipDates || [], isDropped(s) ? 1 : 0, s.dayCounts || []]; }));
+      return [s.id, s.title, s.firstAirDate, s.airDays, s.airTime, s.episodesPerAiring || 1, s.premiereEpisodes || 0, s.totalEpisodes, s.skipDates || [], isDropped(s) ? 1 : 0, s.dayCounts || [], s.aired ? 1 : 0]; }));
   }
   function pushPlanItems(){
     var now = Date.now(), items = [];
     state.shows.forEach(function(s){
-      if(s.type === 'movie' || !s.firstAirDate || !s.totalEpisodes || isDropped(s)) return;
+      if(s.type === 'movie' || s.aired || !s.firstAirDate || !s.totalEpisodes || isDropped(s)) return;
       for(var e = 1; e <= Math.min(s.totalEpisodes, 500); e++){
         var d = computeEpisodeDate(s, e), t = d.getTime();
         if(!isNaN(t) && t > now - 3600000) items.push({ id:s.id, t:s.title, ep:e, at:t });
@@ -2730,14 +2767,14 @@
   // air times, remembered per schedule (long shows would otherwise recount the calendar on every render)
   var kuAirCache = {};
   function kuAir(show, ep){
-    var sig = show.id + '|' + (show.skipDates || []).join(',') + '|' + show.firstAirDate + '|' + show.airTime + '|' + (show.airDays || []).join(',') + '|' + schedSig(show);
+    var sig = show.id + '|' + (show.aired ? 'A' : '') + '|' + (show.skipDates || []).join(',') + '|' + show.firstAirDate + '|' + show.airTime + '|' + (show.airDays || []).join(',') + '|' + schedSig(show);
     var c = kuAirCache[sig]; if(!c){ c = kuAirCache[sig] = {}; }
     if(!(ep in c)){ var d = computeEpisodeDate(show, ep); c[ep] = stValid(d) ? d.getTime() : null; }
     return c[ep];
   }
   // hours between the episode's air time and the tick (watched before it "aired" counts as 0)
   function kuLag(show, ep){
-    if(!show || show.type === 'movie') return null;
+    if(!show || show.type === 'movie' || show.aired) return null;
     var ts = show.watchLog && show.watchLog[String(ep)]; if(!ts || typeof ts !== 'number') return null;
     var air = kuAir(show, ep); if(air == null) return null;
     return Math.max(0, (ts - air) / 3600000);
@@ -2754,7 +2791,7 @@
     state.shows.forEach(function(show){ if(show.type === 'movie') return;
       for(var ep = 1; ep <= Math.min(show.watched || 0, show.totalEpisodes || 0); ep++){
         var ts = show.watchLog && show.watchLog[String(ep)];
-        if(!ts){ var ad = computeEpisodeDate(show, ep); if(stValid(ad) && ad >= s && ad < e) untimed++; continue; }
+        if(!ts){ if(show.aired) continue; var ad = computeEpisodeDate(show, ep); if(stValid(ad) && ad >= s && ad < e) untimed++; continue; }
         if(ts < s.getTime() || ts >= e.getTime()) continue;
         var l = kuLag(show, ep); if(l == null) continue;
         out.push({ show:show, ep:ep, lag:l });
@@ -2810,6 +2847,7 @@
   }
   // Episode list: the date, with a small "x after" under it
   function kuDateCell(show, ep, d){
+    if(show.aired) return '';
     var l = kuLag(show, ep);
     if(l == null) return '<span class="ep-row__date">' + fmtDate(d) + '</span>';
     return '<span class="ep-row__date ku-date"><span>' + fmtDate(d) + '</span><span class="ku-tag" style="--c:var(' + KU_B[kuBucket(l)][3] + ')">' + (l < 1 ? 'within the hour' : kuFmt(l) + ' after') + '</span></span>';
@@ -2865,7 +2903,7 @@
   }
   // breaks that actually move something: on an air day, and not after the last episode
   function skActive(show){
-    if(!show || show.type === 'movie' || !(show.skipDates && show.skipDates.length) || !show.firstAirDate) return [];
+    if(!show || show.type === 'movie' || show.aired || !(show.skipDates && show.skipDates.length) || !show.firstAirDate) return [];
     var last = computeEpisodeDate(show, show.totalEpisodes || 1), lastIso = isoDate(last);
     return show.skipDates.filter(function(x, i, a){ return a.indexOf(x) === i && skIsAirDay(show, x) && x < lastIso; }).sort();
   }
@@ -2954,7 +2992,7 @@
       '<button type="button" data-action="sk-menu-open" data-show="' + id + '">' + icon('right') + 'Open series</button>' +
       (isTile ? (isDropped(show) ? '<button type="button" data-action="sk-menu-resume" data-show="' + id + '">' + icon('play') + 'Resume watching</button>'
                                  : '<button type="button" class="sk-pop__warn" data-action="sk-menu-drop" data-show="' + id + '">' + icon('stop') + 'Stop watching</button>')
-              : '<button type="button" data-action="sk-menu-skip" data-show="' + id + '" data-ep="' + info.number + '">' + icon('close') + 'No episode on ' + fmtDate(info.airDate) + '?</button>') + '</div>';
+              : show.aired ? '' : '<button type="button" data-action="sk-menu-skip" data-show="' + id + '" data-ep="' + info.number + '">' + icon('close') + 'No episode on ' + fmtDate(info.airDate) + '?</button>') + '</div>';
     wrap.innerHTML = '<div class="sk-dim" data-action="sk-menu-close"></div>' + menu;
     wrap.insertBefore(clone, wrap.children[1]);
     document.body.appendChild(wrap); document.documentElement.classList.add('sk-menu-open');
@@ -3513,6 +3551,8 @@
           state.formDraft[field].splice(idx,1);
           render();
         })(); break;
+      case 'ar-mode':
+        if(state.formDraft){ state.formDraft.aired = btn.getAttribute('data-value') === 'aired'; render(); } break;
       case 'fx-daymode': case 'fx-day-step': case 'fx-per-step': case 'fx-day-add': case 'fx-day-del': case 'fx-watch': case 'fx-dub': case 'fx-dub-new':
       case 'fx-genre-edit': case 'fx-genre-new': case 'fx-genre-ren': case 'fx-genre-del': case 'fx-genre-del-ok':
         fxAction(action, btn); break;
