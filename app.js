@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.25.0';
+  var APP_VERSION = 'v2.25.1';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -1943,7 +1943,7 @@
     }
 
     var out = '<div class="screen-pad">';
-    out += '<h1 class="screen-title">Up next</h1>';
+    out += '<h1 class="screen-title">Up next<span class="ver-pill">' + APP_VERSION + '</span></h1>';
     out += '<p class="screen-kicker">' + (active.length ? 'Tap the check to mark an episode watched.' : 'Nothing waiting on you right now.') + '</p>';
 
     if(state.shows.length === 0){
