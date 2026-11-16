@@ -841,6 +841,29 @@
   .ep-row--out .ep-row__num .icon{ display:none; }
   /* v2.25.1: the app version, next to "Up next" */
   .ver-pill{ display:inline-block; margin-left:10px; padding:2px 9px; border:1px solid var(--border); border-radius:999px; font:700 12px/1.5 var(--font-body); color:var(--text-muted); vertical-align:middle; letter-spacing:0; position:relative; top:-3px; white-space:nowrap; }
+  /* v2.26: offline chip + "saved offline" sheet */
+  .off-chip{ display:inline-flex; align-items:center; gap:5px; margin-left:6px; padding:2px 10px 2px 8px; border-radius:999px; font:700 12px/1.5 var(--font-body); letter-spacing:0; vertical-align:middle; position:relative; top:-3px; white-space:nowrap; cursor:pointer;
+    color:#C0573F; background:color-mix(in srgb, #E2725B 14%, transparent); border:1px solid color-mix(in srgb, #E2725B 42%, transparent); }
+  [data-theme="dark"] .off-chip{ color:#F0907A; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .off-chip{ color:#F0907A; } }
+  .off-chip .icon{ width:14px; height:14px; }
+  .sync-dot.down{ background:#E2725B; }
+  .off-wait{ display:flex; align-items:center; gap:10px; width:100%; margin-top:12px; padding:12px 12px; border:1px solid var(--border); border-radius:14px; background:var(--surface-2); color:var(--text); text-align:left; cursor:pointer; font:500 12.5px/1.4 var(--font-body); }
+  .off-wait > span{ flex:1; color:var(--text-muted); } .off-wait b{ display:block; color:var(--text); font-size:13.5px; }
+  .off-wait .icon{ width:20px; height:20px; color:#E2725B; flex:none; } .off-wait .icon:last-child{ width:16px; height:16px; color:var(--text-muted); }
+  .off-tot{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:4px 0 10px; }
+  .off-tot div{ background:var(--surface-2); border-radius:14px; padding:10px 6px; text-align:center; }
+  .off-tot b{ display:block; font:600 22px var(--font-display); color:var(--text); } .off-tot span{ font-size:11.5px; font-weight:700; color:var(--text-muted); }
+  .off-acc{ border:1px solid var(--border); border-radius:14px; margin-top:8px; overflow:hidden; }
+  .off-acc__h{ display:flex; align-items:center; gap:10px; width:100%; padding:9px 12px; border:0; background:none; color:var(--text); text-align:left; font:700 13.5px var(--font-body); cursor:pointer; }
+  .off-acc__h b{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .off-acc__h em{ font-style:normal; font-size:12px; font-weight:700; color:var(--text-muted); white-space:nowrap; }
+  .off-acc__h .icon{ width:16px; height:16px; color:var(--text-muted); flex:none; }
+  .off-pic{ position:relative; width:30px; height:44px; border-radius:6px; overflow:hidden; flex:none; display:flex; align-items:center; justify-content:center; }
+  .off-pic--x{ background:var(--surface-2); color:var(--text-muted); } .off-pic--x .icon{ width:16px; height:16px; }
+  .off-acc__b{ padding:0 12px 10px 52px; } .off-acc__b p{ margin:0; font-size:13px; line-height:1.65; color:var(--text); }
+  .off-empty{ font-size:13px; color:var(--text-muted); margin:6px 0 0; }
+  .off-foot{ margin:14px 0 0; padding:11px 13px; border-radius:14px; background:var(--surface-2); font-size:12.5px; line-height:1.45; color:var(--text-muted); }
   .st-pill:disabled{ opacity:.35; cursor:default; }
   .st-pill small{ display:block; font-size:10px; font-weight:600; opacity:.75; margin-top:2px; }
   .st-weeks{ display:flex; flex-direction:column; gap:6px; }
@@ -944,6 +967,6 @@
     <input type="file" accept="image/*" id="posterFileInput" style="display:none">
     <input type="file" accept="image/*" id="castFileInput" style="display:none">
   </div>
-<script src="app.js?v=239"></script>
+<script src="app.js?v=240"></script>
 </body>
 </html>

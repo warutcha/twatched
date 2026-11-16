@@ -64,7 +64,7 @@
     var total = ((h*60 + m - diff*60) % 1440 + 1440) % 1440;
     return pad(Math.floor(total/60)) + ':' + pad(total%60);
   }
-  var APP_VERSION = 'v2.25.1';
+  var APP_VERSION = 'v2.26.0';
 
   /* ---------------- date helpers ---------------- */
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -686,6 +686,158 @@
   }
   function arNote(){ return '<p class="ar-note">' + icon('check') + '<span>Every episode counts as already out. No air days, times, reminders or Coming up — watch at your own pace.' + ' Leave the year empty if you don’t know it.</span></p>'; }
 
+  /* ---------------- v2.26: offline ----------------
+     Everything you do is saved on the device first, so the app works with no internet. To show what is still
+     waiting and to merge safely, the app keeps a small fingerprint of each series as it was at the last
+     successful sync ("sync base", this device only, never synced). When both this device and another one
+     changed the same series, the merge keeps both sides' changes field by field (episode by episode for
+     watch times, ratings and feelings) instead of letting the newer copy of the whole series win. */
+  ICON_PATHS.cloudoff = '<path d="M7 18.5h10.5a3.5 3.5 0 0 0 .5-6.97A5.5 5.5 0 0 0 7.7 9.6 4.5 4.5 0 0 0 7 18.5z"/><path d="M4 4l16 16"/>';
+  var SB_KEY = 'twatched_syncbase_v1', syncBase = null, netDown = false, offOpenId = null;
+  try { syncBase = JSON.parse(localStorage.getItem(SB_KEY) || 'null'); } catch(e){ syncBase = null; }
+  var SB_SUB = { watchLog:1, epRatings:1 };
+  function h32(str){ var h = 0x811c9dc5; for(var i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h.toString(36); }
+  function vh(v){
+    if(v === undefined || v === null) return '';
+    var s = JSON.stringify(v); if(s === undefined) return '';
+    if(s.length > 4000){ var m = s.length >> 1; s = s.length + '|' + s.slice(0, 1500) + s.slice(m, m + 500) + s.slice(-1500); }   // posters: a cheap but safe fingerprint
+    return h32(s);
+  }
+  function mapHashes(o){ var m = {}; if(o && typeof o === 'object') Object.keys(o).forEach(function(k){ var x = vh(o[k]); if(x) m[k] = x; }); return m; }
+  function mapSig(m){ var ks = Object.keys(m || {}).sort(); return ks.length ? h32(ks.map(function(k){ return k + ':' + m[k]; }).join(',')) : ''; }
+  function fieldHash(k, v){ return SB_SUB[k] ? mapSig(mapHashes(v)) : vh(v); }
+  function baseHash(b, k){ var x = b[k]; return SB_SUB[k] ? (x && typeof x === 'object' ? mapSig(x) : '') : (x || ''); }
+  function sbShow(s){
+    var o = { _t: s.title || '', _w: s.watched || 0 };
+    Object.keys(s).forEach(function(k){ if(k === 'modifiedAt' || k.charAt(0) === '_') return; o[k] = SB_SUB[k] ? mapHashes(s[k]) : vh(s[k]); });
+    return o;
+  }
+  function sbRepo(){ return state.gh ? state.gh.owner + '/' + state.gh.repo : ''; }
+  function sbOk(){ return !!(syncBase && state.gh && syncBase.repo === sbRepo() && syncBase.shows); }
+  function syncBaseSave(){
+    if(!state.gh) return; var shows = {};
+    state.shows.forEach(function(s){ shows[s.id] = sbShow(s); });
+    syncBase = { at: Date.now(), repo: sbRepo(), shows: shows, meta: vh(metaObj()) };
+    try { localStorage.setItem(SB_KEY, JSON.stringify(syncBase)); } catch(e){}
+  }
+  function syncBaseClear(){ syncBase = null; try { localStorage.removeItem(SB_KEY); } catch(e){} }
+  function sbFor(id){ return sbOk() ? syncBase.shows[id] || null : null; }
+  function sbChanged(s, b){ var ks = {}; Object.keys(s).forEach(function(k){ ks[k] = 1; }); Object.keys(b).forEach(function(k){ if(k.charAt(0) !== '_') ks[k] = 1; });
+    return Object.keys(ks).filter(function(k){ return k !== 'modifiedAt' && fieldHash(k, s[k]) !== baseHash(b, k); }); }
+  // both devices changed this series since the last sync: keep each side's changes
+  function mergeShow3(l, r){
+    var newer = r.modifiedAt > l.modifiedAt ? r : l, b = sbFor(l.id);
+    if(!b) return newer;
+    var lc = sbChanged(l, b), rc = sbChanged(r, b);
+    if(!lc.length) return r;
+    if(!rc.length) return l;
+    var out = {}, ks = {};
+    Object.keys(l).concat(Object.keys(r)).forEach(function(k){ ks[k] = 1; });
+    Object.keys(ks).forEach(function(k){
+      if(k === 'modifiedAt') return;
+      var lch = lc.indexOf(k) !== -1, rch = rc.indexOf(k) !== -1, v;
+      if(!rch) v = l[k]; else if(!lch) v = r[k];
+      else if(vh(l[k]) === vh(r[k])) v = l[k];
+      else if(k === 'watched') v = Math.max(l[k] || 0, r[k] || 0);
+      else if(SB_SUB[k]) v = mergeMap3(l[k] || {}, r[k] || {}, b[k] && typeof b[k] === 'object' ? b[k] : {}, newer === r);
+      else v = newer[k];
+      if(v !== undefined) out[k] = v;
+    });
+    if(out.totalEpisodes && out.watched > out.totalEpisodes) out.watched = out.totalEpisodes;
+    out.modifiedAt = Math.max(l.modifiedAt || 0, r.modifiedAt || 0) + 1;
+    return out;
+  }
+  function mergeMap3(lm, rm, bm, remoteNewer){
+    var out = {}, ks = {};
+    Object.keys(lm).concat(Object.keys(rm)).forEach(function(k){ ks[k] = 1; });
+    Object.keys(ks).forEach(function(k){
+      var lch = vh(lm[k]) !== (bm[k] || ''), rch = vh(rm[k]) !== (bm[k] || '');
+      var v = !rch ? lm[k] : !lch ? rm[k] : remoteNewer ? rm[k] : lm[k];
+      if(v !== undefined) out[k] = v;
+    });
+    return out;
+  }
+  // is the device offline? (no network, or the last sync could not reach GitHub)
+  function offIsDown(){ return !!state.gh && (netDown || (typeof navigator !== 'undefined' && navigator.onLine === false)); }
+  function offNoteResult(res){
+    var was = netDown;
+    if(res && res.ok) netDown = false;
+    else if(res && res.reason === 'error' && /fetch|network|load failed|offline|abort|timed? ?out/i.test(res.error || '')) netDown = true;
+    return was !== netDown;
+  }
+  // what changed on this device since the last sync, per series
+  function offPending(){
+    if(!sbOk()) return null;
+    var items = [], tot = { eps:0, rate:0, edit:0 };
+    var feelOf = function(x){ var e = x && x.e; if(!e || !e.length) return ''; return typeof e === 'string' ? e : e.map(feelingShort).join(' '); };
+    state.shows.forEach(function(s){
+      var b = syncBase.shows[s.id], it = { id:s.id, show:s, title:s.title, eps:[], lines:[], n:{ eps:0, rate:0, edit:0 } };
+      if(!b){
+        it.lines.push('Added to the app'); it.n.edit++;
+        for(var i = 1; i <= (s.watched || 0); i++) it.eps.push({ ep:i, ts: s.watchLog && s.watchLog[String(i)] });
+      } else {
+        var ch = sbChanged(s, b); if(!ch.length) return;
+        var bw = b._w || 0, w = s.watched || 0, seen = {};
+        var bl = b.watchLog && typeof b.watchLog === 'object' ? b.watchLog : {};
+        Object.keys(s.watchLog || {}).forEach(function(k){ var e = +k; if(e <= w && vh(s.watchLog[k]) !== (bl[k] || '')) seen[e] = 1; });
+        for(var j = bw + 1; j <= w; j++) seen[j] = 1;
+        Object.keys(seen).map(Number).sort(function(a, c){ return a - c; }).forEach(function(e){ it.eps.push({ ep:e, ts: s.watchLog && s.watchLog[String(e)] }); });
+        if(w < bw){ it.lines.push('Unmarked ' + (w + 1 === bw ? 'Ep ' + bw : 'Ep ' + (w + 1) + '–' + bw)); it.n.edit++; }
+        var br = b.epRatings && typeof b.epRatings === 'object' ? b.epRatings : {}, cr = s.epRatings || {};
+        Object.keys(cr).concat(Object.keys(br)).filter(function(k, i, a){ return a.indexOf(k) === i; }).sort(function(a, c){ return a - c; }).forEach(function(k){
+          if(vh(cr[k]) === (br[k] || '')) return;
+          var x = cr[k], txt = (x && x.r ? '★ ' + x.r : '') + (feelOf(x) ? (x && x.r ? ' · ' : '') + feelOf(x) : '');
+          var e = it.eps.filter(function(q){ return q.ep === +k; })[0];
+          if(e) e.extra = txt || 'rating removed'; else it.lines.push('Ep ' + k + ' · ' + (txt || 'rating removed'));
+          it.n.rate++;
+        });
+        if(ch.indexOf('seriesRating') !== -1){ it.lines.push(s.seriesRating ? 'Series score ' + s.seriesRating + '/10' : 'Series score back to the average'); it.n.rate++; }
+        if(ch.indexOf('rating') !== -1){ it.lines.push(s.rating ? 'Your rating ' + s.rating + '/10' : 'Rating removed'); it.n.rate++; }
+        if(ch.indexOf('watchedDate') !== -1 && s.type === 'movie'){ it.lines.push(s.watchedDate ? 'Watched the movie' : 'Unmarked as watched'); it.n.eps++; }
+        var other = ch.filter(function(k){ return ['watched','watchLog','epRatings','seriesRating','rating','watchedDate','r10'].indexOf(k) === -1; });
+        if(other.length){ it.lines.push('Edited details'); it.n.edit++; }
+      }
+      it.n.eps += it.eps.length;
+      if(it.eps.length || it.lines.length){ items.push(it); tot.eps += it.n.eps; tot.rate += it.n.rate; tot.edit += it.n.edit; }
+    });
+    var ids = {}; state.shows.forEach(function(s){ ids[s.id] = 1; });
+    Object.keys(syncBase.shows).forEach(function(id){ if(!ids[id]){ items.push({ id:id, show:null, title:syncBase.shows[id]._t || 'A series', eps:[], lines:['Removed from the app'], n:{ eps:0, rate:0, edit:1 } }); tot.edit++; } });
+    var meta = vh(metaObj()) !== syncBase.meta; if(meta) tot.edit++;
+    return { items:items, tot:tot, meta:meta, count: tot.eps + tot.rate + tot.edit, at: syncBase.at };
+  }
+  function offChipHtml(){
+    if(!offIsDown()) return '';
+    var p = offPending(), n = p ? p.count : 0;
+    return '<button type="button" class="off-chip" data-action="off-open" aria-label="Offline' + (n ? ', ' + n + ' changes saved on this phone' : '') + '">' + icon('cloudoff') + 'Offline' + (n ? ' · ' + n : '') + '</button>';
+  }
+  function offWhen(ts){ var d = new Date(ts), t = new Date(); return (d.toDateString() === t.toDateString() ? 'Today ' : fmtDate(d) + ' · ') + fmtTime(d); }
+  function offSheetHtml(){
+    var p = offPending(), down = offIsDown();
+    var h = '<h4>' + (down ? 'Saved offline' : 'Waiting to sync') + '</h4>';
+    if(!p) return h + '<p class="drop-sub">Changes you make now will be listed here once this device has synced once.</p>' + offFoot(down);
+    h += '<p class="drop-sub">Since your last sync · ' + offWhen(p.at) + ' · on this phone</p>';
+    if(!p.count) return h + '<p class="off-empty">Nothing new yet. Anything you tick or change now is saved on this phone.</p>' + offFoot(down);
+    h += '<div class="off-tot"><div><b>' + p.tot.eps + '</b><span>episode' + (p.tot.eps === 1 ? '' : 's') + '</span></div><div><b>' + p.tot.rate + '</b><span>rating' + (p.tot.rate === 1 ? '' : 's') + '</span></div><div><b>' + p.tot.edit + '</b><span>edit' + (p.tot.edit === 1 ? '' : 's') + '</span></div></div>';
+    p.items.forEach(function(it){
+      var open = offOpenId === it.id, sum = [it.n.eps ? it.n.eps + (it.n.eps === 1 ? ' ep' : ' eps') : '', it.n.rate ? '★' : '', it.n.edit ? 'edit' : ''].filter(Boolean).join(' · ');
+      var pic = it.show ? '<span class="off-pic" style="' + (it.show.posterImage ? '' : posterStyle(it.show)) + '">' + (it.show.posterImage ? posterImgTag(it.show, 'grid') : '') + '</span>' : '<span class="off-pic off-pic--x">' + icon('trash') + '</span>';
+      h += '<div class="off-acc' + (open ? ' open' : '') + '"><button type="button" class="off-acc__h" data-action="off-row" data-show="' + it.id + '" aria-expanded="' + open + '">' + pic + '<b>' + stEsc(it.title) + '</b><em>' + sum + '</em>' + icon(open ? 'up' : 'down') + '</button>' +
+        (open ? '<div class="off-acc__b">' + it.eps.map(function(e){ return '<p>Ep ' + e.ep + (e.ts ? ' · ' + offWhen(e.ts).replace(/^Today /, '') : '') + (e.extra ? ' · ' + e.extra : '') + '</p>'; }).join('') + it.lines.map(function(l){ return '<p>' + stEsc(l) + '</p>'; }).join('') + '</div>' : '') + '</div>';
+    });
+    if(p.meta) h += '<div class="off-acc"><div class="off-acc__h"><span class="off-pic off-pic--x">' + icon('folder') + '</span><b>Folders, categories or lists</b><em>edit</em></div></div>';
+    return h + offFoot(down);
+  }
+  function offFoot(down){ return '<p class="off-foot">' + (down ? 'These sync by themselves as soon as you’re back online. Nothing to do.' : 'You’re online — these are being synced now.') + '</p>'; }
+  function offOpenSheet(){ offOpenId = null; stOpenSheet('<div id="offSheet">' + offSheetHtml() + '</div>'); }
+  function offRedraw(){ var el = document.getElementById('offSheet'); if(el) el.innerHTML = offSheetHtml(); }
+  function offSettingsHtml(){
+    var p = offPending(); if(!p || !p.count) return '';
+    return '<button type="button" class="off-wait" data-action="off-open">' + icon('clock') + '<span><b>' + p.count + ' change' + (p.count === 1 ? '' : 's') + ' waiting</b>Saved on this phone · they’ll sync as soon as you’re online</span>' + icon('right') + '</button>';
+  }
+  // back online: sync straight away
+  window.addEventListener('online', function(){ netDown = false; if(!booted) return; render(); syncAndMaybeRender(); });
+  window.addEventListener('offline', function(){ if(booted) render(); });
+
   /* ---------------- local storage ----------------
      The app's data (with all poster/cast photos) has outgrown localStorage's ~5 MB cap on iPhone, which
      made saves fail silently — so each launch started from an old copy until sync re-downloaded the rest.
@@ -794,8 +946,9 @@
   // fires immediately after the first render).
   function syncAndMaybeRender(){
     if(!state.gh || !booted) return;
+    var wasDown = netDown;
     syncNow().then(function(result){
-      if(result && result.action === 'pulled') render();
+      if((result && result.action === 'pulled') || wasDown !== netDown || (result && result.ok && state.activeTab === 'settings')) render();
     });
   }
   /* Change tracking for sync. Every show carries modifiedAt; deletions are remembered in state.deleted.
@@ -926,7 +1079,7 @@
     state.shows.forEach(function(l){
       seen[l.id] = true;
       var r = remoteById[l.id];
-      merged.push(r && r.modifiedAt > l.modifiedAt ? r : l);
+      merged.push(r ? mergeShow3(l, r) : l);
     });
     remoteShows.forEach(function(r){ if(!seen[r.id]) merged.push(r); });
     merged = merged.filter(function(s){
@@ -986,11 +1139,13 @@
       });
     }).then(function(result){
       state.lastSyncedAt = Date.now();
+      syncBaseSave(); netDown = false;
       finish();
       return result;
     }).catch(function(err){
       finish();
       var msg = String(err);
+      offNoteResult({ ok:false, reason:'error', error:msg });
       // Someone else wrote between our read and write — read again and merge once more.
       if(!isRetry && /GitHub PUT (409|422)/.test(msg)) return syncNow(true);
       return { ok:false, reason:'error', error:msg };
@@ -1943,7 +2098,7 @@
     }
 
     var out = '<div class="screen-pad">';
-    out += '<h1 class="screen-title">Up next<span class="ver-pill">' + APP_VERSION + '</span></h1>';
+    out += '<h1 class="screen-title">Up next<span class="ver-pill">' + APP_VERSION + '</span>' + offChipHtml() + '</h1>';
     out += '<p class="screen-kicker">' + (active.length ? 'Tap the check to mark an episode watched.' : 'Nothing waiting on you right now.') + '</p>';
 
     if(state.shows.length === 0){
@@ -2582,7 +2737,8 @@
     var syncCard;
     if(state.gh){
       syncCard = '<div class="settings-card"><h3>Sync across devices</h3>' +
-        '<div class="sync-row"><span class="sync-dot"></span><div><p class="sync-row-title">Connected — ' + state.gh.owner + '/' + state.gh.repo + '</p><p class="sync-row-sub">Last synced ' + fmtRelative(state.lastSyncedAt) + '</p></div></div>' +
+        '<div class="sync-row"><span class="sync-dot' + (offIsDown() ? ' down' : '') + '"></span><div><p class="sync-row-title">' + (offIsDown() ? 'Offline' : 'Connected') + ' — ' + state.gh.owner + '/' + state.gh.repo + '</p><p class="sync-row-sub">Last synced ' + fmtRelative(state.lastSyncedAt) + '</p></div></div>' +
+        offSettingsHtml() +
         statusNoteHtml() +
         '<button class="btn btn-ghost btn-block btn-sm" data-action="sync-now" style="margin-top:8px;">' + (state.syncing ? 'Syncing…' : 'Sync now') + '</button>' +
         '<button class="btn btn-danger btn-block btn-sm" data-action="disconnect-github" style="margin-top:8px;">Disconnect</button>' +
@@ -3331,6 +3487,7 @@
       state.gh = candidate;
       saveGH(candidate);
       state.lastSyncedAt = Date.now();
+      syncBaseSave(); netDown = false;
       state.ghStatus = { type:'success', msg:'Connected.' };
       persistLocal();
       render();
@@ -3553,6 +3710,8 @@
         })(); break;
       case 'ar-mode':
         if(state.formDraft){ state.formDraft.aired = btn.getAttribute('data-value') === 'aired'; render(); } break;
+      case 'off-open': offOpenSheet(); break;
+      case 'off-row': offOpenId = offOpenId === btn.getAttribute('data-show') ? null : btn.getAttribute('data-show'); offRedraw(); break;
       case 'fx-daymode': case 'fx-day-step': case 'fx-per-step': case 'fx-day-add': case 'fx-day-del': case 'fx-watch': case 'fx-dub': case 'fx-dub-new':
       case 'fx-genre-edit': case 'fx-genre-new': case 'fx-genre-ren': case 'fx-genre-del': case 'fx-genre-del-ok':
         fxAction(action, btn); break;
@@ -3798,6 +3957,7 @@
         connectGithub(); break;
       case 'disconnect-github':
         state.gh = null; state.ghSha = null; state.ghStatus = null; state.lastSyncedAt = null;
+        syncBaseClear(); netDown = false;
         saveGH(null); render(); break;
       case 'sync-now':
         (function(){

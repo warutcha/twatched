@@ -1,11 +1,11 @@
 // TWatched service worker — app-shell caching so the installed app opens
 // instantly and works offline. It does not do background push; see README.
 
-const CACHE_VERSION = 'twatched-v85';
+const CACHE_VERSION = 'twatched-v86';
 const SHELL_FILES = [
   './',
   './index.html',
-  './app.js?v=225',
+  './app.js?v=240',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
@@ -39,15 +39,22 @@ self.addEventListener('fetch', (event) => {
   if (url.indexOf('api.github.com') !== -1) return; // let sync calls always hit the network
   if (event.request.headers.has('X-App-Key')) return; // notification Worker calls: straight to the network, never cached
 
-  event.respondWith(
-    fetch(event.request, { cache: 'no-store' }).catch(() => fetch(event.request)).then((response) => {
+  // v2.26: on weak Wi-Fi (planes, airports) don't wait forever — if the network hasn't answered in 3 s and
+  // there is a saved copy, open that; the network answer still refreshes the cache for next time.
+  event.respondWith(new Promise((resolve) => {
+    let done = false;
+    const answer = (r) => { if (!done && r) { done = true; resolve(r); } };
+    const net = fetch(event.request, { cache: 'no-store' }).catch(() => fetch(event.request)).then((response) => {
       if (event.request.method === 'GET' && response && response.status === 200) {
         const copy = response.clone();
         caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
       }
       return response;
-    }).catch(() => caches.match(event.request))
-  );
+    });
+    const timer = setTimeout(() => { caches.match(event.request).then(answer); }, 3000);
+    net.then((r) => { clearTimeout(timer); answer(r); })
+       .catch(() => { clearTimeout(timer); caches.match(event.request).then((c) => answer(c || Response.error())); });
+  }));
 });
 
 // Notifications (v2.16): your Cloudflare Worker sends a push when an episode airs.
